@@ -1,0 +1,6 @@
+{
+  "name": "Party Registration & Lucky Draw",
+  "description": "ระบบลงทะเบียนผู้เข้าร่วมงานปาร์ตี้ พร้อมระบบสุ่มของรางวัล Lucky Draw ที่สวยงาม คมชัดระดับ 4K สำหรับขึ้นจอโปรเจกเตอร์",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
