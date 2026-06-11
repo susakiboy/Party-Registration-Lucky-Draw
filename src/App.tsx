@@ -11,16 +11,7 @@ import Lobby from "./components/Lobby";
 import { Ticket, Users, Trophy, Sparkles, AlertCircle, HelpCircle } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
-const defaultPrizes: Prize[] = [
-  { id: "p1", name: "iPhone 15 Pro Max 📱", amount: 1, drawnCount: 0 },
-  { id: "p2", name: "iPad Air M2 🎨", amount: 2, drawnCount: 0 },
-  { id: "p3", name: "Nintendo Switch OLED 🎮", amount: 3, drawnCount: 0 },
-  { id: "p4", name: "AirPods Pro 2 🎧", amount: 5, drawnCount: 0 },
-  { id: "p5", name: "Marshall Emberton II 🔊", amount: 5, drawnCount: 0 },
-  { id: "p6", name: "Dyson Supersonic 💨", amount: 2, drawnCount: 0 },
-  { id: "p7", name: "บัตรของขวัญมูลค่า 5,000 บาท 💳", amount: 10, drawnCount: 0 },
-  { id: "p8", name: "ทองคำแท่ง 1 สลึง 🪙", amount: 1, drawnCount: 0 }
-];
+const defaultPrizes: Prize[] = [];
 
 export default function App() {
   // Navigation mode state: 'register' | 'lobby' | 'draw'
@@ -29,6 +20,26 @@ export default function App() {
   // State
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [prizes, setPrizes] = useState<Prize[]>([]);
+
+  // State for overall party settings
+  const [systemTitle, setSystemTitle] = useState(() => localStorage.getItem("party_system_title") || "Carrier Staff Party");
+  const [systemSubtitle, setSystemSubtitle] = useState(() => localStorage.getItem("party_system_subtitle") || "Thai Dance in the Dark");
+  const [logoUrl, setLogoUrl] = useState(() => localStorage.getItem("party_logo_url") || "");
+
+  const handleUpdateSystemTitle = (title: string) => {
+    setSystemTitle(title);
+    localStorage.setItem("party_system_title", title);
+  };
+
+  const handleUpdateSystemSubtitle = (subtitle: string) => {
+    setSystemSubtitle(subtitle);
+    localStorage.setItem("party_system_subtitle", subtitle);
+  };
+
+  const handleUpdateLogoUrl = (url: string) => {
+    setLogoUrl(url);
+    localStorage.setItem("party_logo_url", url);
+  };
 
   // Load initial data from localStorage
   useEffect(() => {
@@ -47,7 +58,14 @@ export default function App() {
     if (storedPrizes) {
       try {
         const parsed = JSON.parse(storedPrizes);
-        if (parsed && parsed.length > 0) {
+        const isLegacyDefault = Array.isArray(parsed) && (
+          (parsed.length === 4 && parsed[0]?.id === "p1" && parsed[0]?.name.includes("บัตรของขวัญมูลค่า 1,000 บาท")) ||
+          (parsed.length === 8 && parsed[0]?.id === "p1" && parsed[0]?.name.includes("iPhone 15"))
+        );
+        if (isLegacyDefault) {
+          setPrizes([]);
+          localStorage.setItem("party_prizes", JSON.stringify([]));
+        } else if (parsed && parsed.length > 0) {
           setPrizes(parsed);
         } else {
           setPrizes(defaultPrizes);
@@ -207,19 +225,30 @@ export default function App() {
           
           {/* Logo / Title */}
           <div className="flex items-center gap-3 cursor-pointer" onClick={() => setActiveTab("register")}>
-            <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-purple-500 to-pink-500 flex items-center justify-center text-white font-bold italic shadow-lg shadow-purple-500/20">
-              N
-            </div>
+            {logoUrl ? (
+              <img
+                src={logoUrl}
+                alt="Logo"
+                className="w-[200px] h-auto object-contain"
+                referrerPolicy="no-referrer"
+              />
+            ) : (
+              <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-purple-500 to-pink-500 flex items-center justify-center text-white font-bold italic shadow-lg shadow-purple-500/20 select-none">
+                {systemTitle.charAt(0) || "N"}
+              </div>
+            )}
             <div>
               <div className="flex items-center gap-2">
                 <h1 className="text-lg sm:text-xl font-bold tracking-tight bg-gradient-to-r from-white via-indigo-200 to-white bg-clip-text text-transparent uppercase">
-                  Carrier Staff Party
+                  {systemTitle}
                 </h1>
-                <span className="text-[10px] font-bold text-pink-400 bg-pink-500/10 border border-pink-500/30 px-2 py-0.5 rounded uppercase tracking-widest shrink-0">
-                  Thai Dance in the Dark
-                </span>
+                {systemSubtitle && (
+                  <span className="text-[10px] font-bold text-pink-400 bg-pink-500/10 border border-pink-500/30 px-2 py-0.5 rounded uppercase tracking-widest shrink-0">
+                    {systemSubtitle}
+                  </span>
+                )}
               </div>
-              <p className="text-[10px] text-white/50 uppercase tracking-[0.2em]">Carrier Staff Party 2026 / Lucky Draw</p>
+              <p className="text-[10px] text-white/50 uppercase tracking-[0.2em]">{systemTitle} 2026 / Lucky Draw</p>
             </div>
           </div>
 
@@ -295,6 +324,14 @@ export default function App() {
                 onImportParticipants={handleImportParticipants}
                 onSwitchToLuckyDraw={() => setActiveTab("draw")}
                 onUpdatePrizes={handleUpdatePrizes}
+                onResetWinner={handleResetWinner}
+                onResetAllWinners={handleResetAllWinners}
+                systemTitle={systemTitle}
+                onUpdateSystemTitle={handleUpdateSystemTitle}
+                systemSubtitle={systemSubtitle}
+                onUpdateSystemSubtitle={handleUpdateSystemSubtitle}
+                logoUrl={logoUrl}
+                onUpdateLogoUrl={handleUpdateLogoUrl}
               />
             )}
 
@@ -306,6 +343,9 @@ export default function App() {
                 onWinnersDrawn={handleWinnersDrawn}
                 onResetWinner={handleResetWinner}
                 onResetAllWinners={handleResetAllWinners}
+                systemTitle={systemTitle}
+                systemSubtitle={systemSubtitle}
+                logoUrl={logoUrl}
               />
             )}
           </motion.div>

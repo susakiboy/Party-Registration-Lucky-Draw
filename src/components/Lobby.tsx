@@ -19,7 +19,9 @@ import {
   RefreshCw,
   Gift,
   HelpCircle,
-  FileCheck
+  FileCheck,
+  Settings,
+  Image as ImageIcon
 } from "lucide-react";
 
 interface LobbyProps {
@@ -31,6 +33,14 @@ interface LobbyProps {
   onImportParticipants: (imported: Participant[]) => void;
   onSwitchToLuckyDraw: () => void;
   onUpdatePrizes: (newPrizes: Prize[]) => void;
+  onResetWinner?: (winnerId: string) => void;
+  onResetAllWinners?: () => void;
+  systemTitle: string;
+  onUpdateSystemTitle: (title: string) => void;
+  systemSubtitle: string;
+  onUpdateSystemSubtitle: (subtitle: string) => void;
+  logoUrl: string;
+  onUpdateLogoUrl: (url: string) => void;
 }
 
 export default function Lobby({
@@ -41,7 +51,15 @@ export default function Lobby({
   onClearAll,
   onImportParticipants,
   onSwitchToLuckyDraw,
-  onUpdatePrizes
+  onUpdatePrizes,
+  onResetWinner,
+  onResetAllWinners,
+  systemTitle,
+  onUpdateSystemTitle,
+  systemSubtitle,
+  onUpdateSystemSubtitle,
+  logoUrl,
+  onUpdateLogoUrl
 }: LobbyProps) {
   // Staff security login
   const [isLoggedIn, setIsLoggedIn] = useState(() => sessionStorage.getItem("staff_logged_in") === "true");
@@ -199,6 +217,208 @@ export default function Lobby({
           }
         } catch (error) {
           alert("ไม่สามารถอ่านไฟล์ได้ กรุณาตรวจสอบว่าเป็นไฟล์ JSON ที่ถูกต้อง");
+        }
+      };
+    }
+  };
+
+  // Helper to escape CSV cell value cleanly
+  const escapeCsvValue = (val: string) => {
+    if (val === undefined || val === null) return '""';
+    const cleanValue = val.toString().replace(/"/g, '""');
+    if (cleanValue.includes(",") || cleanValue.includes("\n") || cleanValue.includes("\r") || cleanValue.includes('"')) {
+      return `"${cleanValue}"`;
+    }
+    return cleanValue;
+  };
+
+  // Export CSV function with UTF-8 BOM so Excel displays Thai characters correctly
+  const handleExportCSV = () => {
+    if (participants.length === 0) return;
+
+    const headers = ["id", "fullName", "department", "registeredAt", "isWinner", "wonPrizeName", "wonAt"];
+    const csvRows = [
+      headers.join(","),
+      ...participants.map((p) => {
+        return [
+          escapeCsvValue(p.id),
+          escapeCsvValue(p.fullName),
+          escapeCsvValue(p.department),
+          escapeCsvValue(p.registeredAt),
+          p.isWinner ? "true" : "false",
+          escapeCsvValue(p.wonPrizeName || ""),
+          escapeCsvValue(p.wonAt || "")
+        ].join(",");
+      })
+    ];
+
+    const csvContent = "\uFEFF" + csvRows.join("\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const downloadAnchor = document.createElement("a");
+    downloadAnchor.setAttribute("href", url);
+    downloadAnchor.setAttribute("download", `party_participants_export_${new Date().toISOString().slice(0,10)}.csv`);
+    document.body.appendChild(downloadAnchor);
+    downloadAnchor.click();
+    downloadAnchor.remove();
+  };
+
+  // Parser helper to support quotes, newlines, and escape sequences inside CSV
+  const parseCSV = (text: string): Participant[] => {
+    const lines: string[] = [];
+    let currentLine = "";
+    let inQuotes = false;
+
+    for (let i = 0; i < text.length; i++) {
+      const char = text[i];
+      if (char === '"') {
+        inQuotes = !inQuotes;
+        currentLine += char;
+      } else if ((char === '\n' || char === '\r') && !inQuotes) {
+        if (char === '\n') {
+          lines.push(currentLine);
+          currentLine = "";
+        } else if (char === '\r') {
+          lines.push(currentLine);
+          currentLine = "";
+          if (text[i + 1] === '\n') {
+            i++;
+          }
+        }
+      } else {
+        currentLine += char;
+      }
+    }
+    if (currentLine) {
+      lines.push(currentLine);
+    }
+
+    if (lines.length < 2) return [];
+
+    const parseCSVRow = (rowText: string): string[] => {
+      const result: string[] = [];
+      let currentVal = "";
+      let insideQuotes = false;
+
+      for (let i = 0; i < rowText.length; i++) {
+        const char = rowText[i];
+        if (char === '"') {
+          if (insideQuotes && rowText[i + 1] === '"') {
+            currentVal += '"';
+            i++;
+          } else {
+            insideQuotes = !insideQuotes;
+          }
+        } else if (char === ',' && !insideQuotes) {
+          result.push(currentVal.trim());
+          currentVal = "";
+        } else {
+          currentVal += char;
+        }
+      }
+      result.push(currentVal.trim());
+      return result;
+    };
+
+    const headerLine = lines[0];
+    const headers = parseCSVRow(headerLine).map(h => h.toLowerCase().trim());
+    const importedParticipants: Participant[] = [];
+
+    // Search indexes matching different localized strings
+    const idxId = headers.findIndex(h => h.includes("id") || h.includes("ลำดับ") || h.includes("รหัส") || h === "no" || h === "ลำดับที่");
+    const idxFullName = headers.findIndex(h => h.includes("fullname") || h.includes("name") || h.includes("ชื่อ") || h.includes("สกุล"));
+    const idxDept = headers.findIndex(h => h.includes("department") || h.includes("dept") || h.includes("แผนก") || h.includes("ฝ่าย") || h === "หน่วยงาน");
+    const idxRegAt = headers.findIndex(h => h.includes("registeredat") || h.includes("time") || h.includes("เวลา"));
+    const idxIsWinner = headers.findIndex(h => h.includes("iswinner") || h.includes("winner") || h.includes("ชนะ"));
+    const idxWonPrize = headers.findIndex(h => h.includes("wonprizename") || h.includes("prize") || h.includes("รางวัลที่ได้"));
+    const idxWonAt = headers.findIndex(h => h.includes("wonat") || h.includes("เวลาได้"));
+
+    for (let i = 1; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (!line) continue;
+
+      const columns = parseCSVRow(line);
+      if (columns.length === 0) continue;
+
+      // Make fields with fallback index logic
+      let id = "";
+      if (idxId !== -1 && columns[idxId]) {
+        id = columns[idxId];
+      } else {
+        id = columns[0] ? columns[0] : `S${Date.now()}_${i}`;
+      }
+
+      let fullName = "";
+      if (idxFullName !== -1 && columns[idxFullName]) {
+        fullName = columns[idxFullName];
+      } else {
+        // Fallback: second column
+        fullName = columns[1] || "";
+      }
+
+      let department = "";
+      if (idxDept !== -1 && columns[idxDept]) {
+        department = columns[idxDept];
+      } else {
+        // Fallback: third column
+        department = columns[2] || "ทั่วไป (General)";
+      }
+
+      // If name is blank, we can generate a simple placeholder or skip
+      if (!fullName) continue;
+
+      let registeredAt = new Date().toISOString();
+      if (idxRegAt !== -1 && columns[idxRegAt]) {
+        registeredAt = columns[idxRegAt];
+      }
+
+      let isWinner = false;
+      if (idxIsWinner !== -1 && columns[idxIsWinner]) {
+        const val = columns[idxIsWinner].toLowerCase();
+        isWinner = val === "true" || val === "1" || val === "yes" || val === "y" || val === "ใช่";
+      }
+
+      let wonPrizeName = "";
+      if (idxWonPrize !== -1 && columns[idxWonPrize]) {
+        wonPrizeName = columns[idxWonPrize];
+      }
+
+      let wonAt = "";
+      if (idxWonAt !== -1 && columns[idxWonAt]) {
+        wonAt = columns[idxWonAt];
+      }
+
+      importedParticipants.push({
+        id,
+        fullName,
+        department,
+        registeredAt,
+        isWinner,
+        wonPrizeName: wonPrizeName || undefined,
+        wonAt: wonAt || undefined
+      });
+    }
+
+    return importedParticipants;
+  };
+
+  // Import CSV function
+  const handleImportCSVFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const fileReader = new FileReader();
+    if (e.target.files && e.target.files[0]) {
+      fileReader.readAsText(e.target.files[0], "UTF-8");
+      fileReader.onload = (event) => {
+        try {
+          const content = event.target?.result as string;
+          const parsed = parseCSV(content);
+          if (parsed.length > 0) {
+            onImportParticipants(parsed);
+            alert(`นำเข้ารายชื่อผู้ร่วมงานจาก CSV เรียบร้อยแล้วจำนวน ${parsed.length} คน!`);
+          } else {
+            alert("ไม่พบรายชื่อผู้ร่วมงานในไฟล์ CSV หรือรูปเล่มหัวตาราง (Header) ไม่ถูกต้อง\n\nหัวตารางควรมีอย่างน้อย: id, fullName, department");
+          }
+        } catch (error) {
+          alert("ไม่สามารถประมวลผลไฟล์ CSV ได้ กรุณาตรวจสอบความถูกต้องของไฟล์");
         }
       };
     }
@@ -484,7 +704,22 @@ export default function Lobby({
                       <div className="flex items-center justify-between">
                         <div className="min-w-0 pr-2">
                           <span className="text-xs font-semibold text-white block truncate">{p.name}</span>
-                          <span className="text-[10px] text-white/50 font-mono">จำนวน: {p.amount} ชิ้น</span>
+                          {(() => {
+                            const prizeDrawnCount = participants.filter(
+                              (part) => part.isWinner && part.wonPrizeName === p.name
+                            ).length;
+                            const isFullyDrawn = prizeDrawnCount >= p.amount;
+                            return (
+                              <span className="text-[10px] text-white/50 font-mono block mt-0.5">
+                                จำนวน: {p.amount} ชิ้น{" "}
+                                {prizeDrawnCount > 0 && (
+                                  <span className={isFullyDrawn ? "text-red-450 font-semibold" : "text-pink-400"}>
+                                    | สุ่มไปแล้ว {prizeDrawnCount} ชิ้น {isFullyDrawn ? "(ครบโควตา 🔴)" : `(เหลือ ${p.amount - prizeDrawnCount} ชิ้น 🟢)`}
+                                  </span>
+                                )}
+                              </span>
+                            );
+                          })()}
                         </div>
                         <div className="flex items-center gap-1 shrink-0">
                           <button
@@ -543,6 +778,106 @@ export default function Lobby({
             </div>
           </div>
 
+          {/* Settings Panel: Name and Logo */}
+          <div className="glass-panel rounded-2xl p-5 shadow-xl space-y-4">
+            <h3 className="text-base font-bold text-white flex items-center gap-2 uppercase tracking-wider">
+              <Settings className="w-4 h-4 text-pink-400 rotate-90" />
+              <span>ตั้งค่าปาร์ตี้ & โลโก้ระบบ</span>
+            </h3>
+
+            <p className="text-xs text-white/55 leading-relaxed font-light">
+              ปรับแต่งชื่อธีมงาน และอัปโหลดโลโก้บริษัทสำหรับแสดงผลบนจอหลักและหน้าจับรางวัล
+            </p>
+
+            <div className="space-y-3.5">
+              {/* Logo Upload Section */}
+              <div className="space-y-2">
+                <label className="text-xs text-white/70 block font-medium">
+                  โลโก้ประจำระบบ (แนะนำไฟล์รูปตระกูล PNG/JPG ขนาดไม่เกิน 2MB)
+                </label>
+                <div className="flex items-center gap-3">
+                  {logoUrl ? (
+                    <div className="relative group shrink-0">
+                      <img
+                        src={logoUrl}
+                        alt="Uploaded Logo"
+                        className="w-16 h-16 object-contain rounded-xl border border-white/20 bg-black/40 p-1.5 shadow-md"
+                        referrerPolicy="no-referrer"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (confirm("คุณต้องการลบโลโก้ปัจจุบันและกลับไปใช้โลโก้เริ่มต้นใช่หรือไม่?")) {
+                            onUpdateLogoUrl("");
+                          }
+                        }}
+                        className="absolute -top-1.5 -right-1.5 bg-red-500 hover:bg-red-600 text-white p-1 rounded-full text-xs shadow-lg transition-transform hover:scale-110 cursor-pointer"
+                        title="ลบโลโก้"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="w-16 h-16 rounded-xl bg-white/5 border border-dashed border-white/20 flex flex-col items-center justify-center text-white/40 group hover:border-pink-500/30 transition-all">
+                      <ImageIcon className="w-5 h-5 mb-1" />
+                      <span className="text-[10px]">ไม่มีโลโก้</span>
+                    </div>
+                  )}
+
+                  <label className="flex-1 bg-white/[0.04] border border-white/10 hover:bg-white/10 relative rounded-xl px-4 py-3 text-xs font-semibold text-white/80 text-center transition-all cursor-pointer shadow-sm select-none">
+                    <ImageIcon className="w-4 h-4 inline-block mr-1.5 text-pink-400 align-text-bottom" />
+                    <span>{logoUrl ? "เปลี่ยนรูปโลโก้" : "อัปโหลดโลโก้"}</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          if (file.size > 2 * 1024 * 1024) {
+                            alert("ไฟล์มีขนาดใหญ่เกินไป (จำกัดไม่เกิน 2MB)!");
+                            return;
+                          }
+                          const reader = new FileReader();
+                          reader.onload = (event) => {
+                            if (event.target?.result && typeof event.target.result === "string") {
+                              onUpdateLogoUrl(event.target.result);
+                            }
+                          };
+                          reader.readAsDataURL(file);
+                        }
+                      }}
+                      className="hidden"
+                    />
+                  </label>
+                </div>
+              </div>
+
+              {/* Title Input */}
+              <div className="space-y-1.5">
+                <label className="text-xs text-white/70 block font-medium">ชื่อระบบหลัก (System Title)</label>
+                <input
+                  type="text"
+                  value={systemTitle}
+                  onChange={(e) => onUpdateSystemTitle(e.target.value)}
+                  placeholder="เช่น Carrier Staff Party"
+                  className="w-full glass-input rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-pink-500/50"
+                />
+              </div>
+
+              {/* Subtitle Input */}
+              <div className="space-y-1.5">
+                <label className="text-xs text-white/70 block font-medium">ชื่องานสแตนอินรอง (System Subtitle)</label>
+                <input
+                  type="text"
+                  value={systemSubtitle}
+                  onChange={(e) => onUpdateSystemSubtitle(e.target.value)}
+                  placeholder="เช่น Thai Dance in the Dark"
+                  className="w-full glass-input rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-pink-500/50"
+                />
+              </div>
+            </div>
+          </div>
+
           {/* Backup Panel: Import / Export */}
           <div className="glass-panel rounded-2xl p-5 shadow-xl space-y-4">
             <h3 className="text-base font-bold text-white flex items-center gap-2 uppercase tracking-wider">
@@ -551,34 +886,74 @@ export default function Lobby({
             </h3>
             
             <p className="text-xs text-white/55 leading-relaxed font-light">
-              เนื่องจากแอปพึ่งพา Local Storage คุณสามารถนำออกข้อมูลเพื่อสำรอง หรือนำเข้ามาใช้เป็นต้นแบบล่วงหน้าได้ในพริบตา!
+              แอปพลิเคชันรองรับการทำงานกับข้อมูลทั้งรูปแบบไฟล์ CSV (เปิดใน Excel / Google Sheets ได้ทันที) และรูปแบบไฟล์ JSON
             </p>
 
-            <div className="grid grid-cols-2 gap-3">
-              <button
-                onClick={handleExportData}
-                disabled={participants.length === 0}
-                className="bg-white/5 border border-white/10 hover:bg-white/10 py-2.5 px-3 rounded-lg text-xs font-semibold text-white transition-all cursor-pointer flex items-center justify-center gap-1 shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
-                title="ส่งออกไฟล์ JSON เพื่อสำรองเครื่องอื่น"
-              >
-                <Download className="w-3.5 h-3.5" />
-                ส่งออกส่งไฟล์ (JSON)
-              </button>
+            {/* CSV Controls */}
+            <div className="space-y-2">
+              <div className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                <span>รูปแบบไฟล์ CSV (รองรับ Excel & Sheets)</span>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={handleExportCSV}
+                  disabled={participants.length === 0}
+                  className="bg-emerald-500/10 border border-emerald-500/20 hover:bg-emerald-500/20 py-2.5 px-3 rounded-lg text-xs font-semibold text-emerald-300 transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-sm disabled:opacity-30 disabled:cursor-not-allowed"
+                  title="ส่งออกไฟล์ CSV สำหรับเปิดใน Excel หรือ Google Sheets"
+                >
+                  <Download className="w-3.5 h-3.5 text-emerald-400" />
+                  ส่งออกเป็น CSV
+                </button>
 
-              <label className="bg-white/5 border border-white/10 hover:bg-white/10 py-2.5 px-3 rounded-lg text-xs font-semibold text-white transition-all cursor-pointer flex items-center justify-center gap-1 shadow-sm text-center">
-                <Upload className="w-3.5 h-3.5" />
-                <span>นำเข้าข้อมูล (.json)</span>
-                <input
-                  type="file"
-                  accept=".json"
-                  onChange={handleImportFile}
-                  className="hidden"
-                />
-              </label>
+                <label className="bg-[#22c55e]/10 border border-[#22c55e]/20 hover:bg-[#22c55e]/20 py-2.5 px-3 rounded-lg text-xs font-semibold text-emerald-300 transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-sm text-center">
+                  <Upload className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>นำเข้า CSV (.csv)</span>
+                  <input
+                    type="file"
+                    accept=".csv"
+                    onChange={handleImportCSVFile}
+                    className="hidden"
+                  />
+                </label>
+              </div>
+            </div>
+
+            {/* JSON Backup Controls */}
+            <div className="space-y-2 pt-2 border-t border-white/5">
+              <div className="text-[10px] font-bold text-purple-400 uppercase tracking-wider flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-purple-400 opacity-60"></span>
+                <span>รูปแบบไฟล์ JSON (สำรองข้อมูลระบบ)</span>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={handleExportData}
+                  disabled={participants.length === 0}
+                  className="bg-white/5 border border-white/10 hover:bg-white/10 py-2.5 px-3 rounded-lg text-xs font-semibold text-white/90 transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
+                  title="ส่งออกไฟล์ JSON เพื่อสำรองหรือย้ายไปเครื่องอื่น"
+                >
+                  <Download className="w-3.5 h-3.5 opacity-70" />
+                  ส่งออกเป็น JSON
+                </button>
+
+                <label className="bg-white/5 border border-white/10 hover:bg-white/10 py-2.5 px-3 rounded-lg text-xs font-semibold text-white/90 transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-sm text-center">
+                  <Upload className="w-3.5 h-3.5 opacity-70" />
+                  <span>นำเข้า JSON (.json)</span>
+                  <input
+                    type="file"
+                    accept=".json"
+                    onChange={handleImportFile}
+                    className="hidden"
+                  />
+                </label>
+              </div>
             </div>
 
             <div className="border-t border-white/10 pt-3.5 flex flex-col gap-2.5">
               <button
+                type="button"
                 onClick={loadSampleParticipants}
                 className="w-full bg-white/5 hover:bg-white/10 border border-white/20 text-white py-2 rounded-lg text-xs font-medium cursor-pointer transition-all flex items-center justify-center gap-1.5"
               >
@@ -586,8 +961,24 @@ export default function Lobby({
                 สุ่มใส่รายชื่อตัวอย่าง (10 คน) สำหรับลองระบบ
               </button>
 
+              {participants.some((p) => p.isWinner) && onResetAllWinners && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (confirm("ต้องการรีเซ็ตประวัติผู้ได้รับรางวัลทั้งหมด และคืนสิทธิ์การสุ่มกลับให้ทุกคน ใช่หรือไม่?")) {
+                      onResetAllWinners();
+                    }
+                  }}
+                  className="w-full bg-yellow-500/10 hover:bg-yellow-500/20 border border-yellow-500/25 text-yellow-300 py-2 rounded-lg text-xs font-medium cursor-pointer transition-all flex items-center justify-center gap-1.5"
+                >
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin-slow" />
+                  ล้างรายชื่อผู้ได้รับรางวัลทั้งหมด (คืนสิทธิ์สุ่มให้ทุกคน)
+                </button>
+              )}
+
               {participants.length > 0 && (
                 <button
+                  type="button"
                   onClick={() => {
                     if (confirm("คุณแน่ใจหรือไม่ว่าต้องการล้างรายชื่อผู้เข้าร่วมและรางวัลทั้งหมด? ข้อมูลเดิมจะสูญหายทันที!")) {
                       onClearAll();
@@ -705,6 +1096,20 @@ export default function Lobby({
                           <div className="text-[10px] text-white/40">รางวัลที่ได้</div>
                           <div className="text-xs font-bold text-yellow-300">{participant.wonPrizeName}</div>
                         </div>
+                      )}
+
+                      {participant.isWinner && onResetWinner && (
+                        <button
+                          onClick={() => {
+                            if (confirm(`ยกเลิกประวัติรางวัลและคืนสิทธิ์การสุ่มให้คุณ ${participant.fullName} ใช่หรือไม่?`)) {
+                              onResetWinner(participant.id);
+                            }
+                          }}
+                          className="p-2 border border-yellow-500/15 text-yellow-400 hover:text-yellow-300 hover:border-yellow-500/30 hover:bg-yellow-500/10 rounded-lg transition-all cursor-pointer"
+                          title="คืนสิทธิ์การจับรางวัลกลับเข้าหมวดสุ่มใหม่"
+                        >
+                          <RefreshCw className="w-3.5 h-3.5" />
+                        </button>
                       )}
                       
                       <button

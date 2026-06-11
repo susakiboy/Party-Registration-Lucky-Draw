@@ -20,7 +20,9 @@ import {
   Compass,
   ArrowRight,
   Users,
-  Award
+  Award,
+  Maximize2,
+  Minimize2
 } from "lucide-react";
 
 interface LuckyDrawProps {
@@ -30,6 +32,9 @@ interface LuckyDrawProps {
   onWinnersDrawn: (winnersList: { winnerId: string; prizeName: string }[]) => void;
   onResetWinner: (winnerId: string) => void;
   onResetAllWinners: () => void;
+  systemTitle: string;
+  systemSubtitle: string;
+  logoUrl: string;
 }
 
 export default function LuckyDraw({
@@ -38,7 +43,10 @@ export default function LuckyDraw({
   onWinnerDrawn,
   onWinnersDrawn,
   onResetWinner,
-  onResetAllWinners
+  onResetAllWinners,
+  systemTitle,
+  systemSubtitle,
+  logoUrl
 }: LuckyDrawProps) {
   const [currentPrizeName, setCurrentPrizeName] = useState("รางวัลพิเศษ (Lucky Draw)");
   const [isSpinning, setIsSpinning] = useState(false);
@@ -47,6 +55,79 @@ export default function LuckyDraw({
   const [spinCount, setSpinCount] = useState<1 | 10>(1);
   const [multiWinners, setMultiWinners] = useState<Participant[]>([]);
   const [isSoundEnabled, setIsSoundEnabled] = useState(true);
+
+  // Full Screen States & Refs
+  const [isFullscreenDraw, setIsFullscreenDraw] = useState(false);
+  const [isFullscreenWinners, setIsFullscreenWinners] = useState(false);
+  const drawContainerRef = useRef<HTMLDivElement>(null);
+  const winnersContainerRef = useRef<HTMLDivElement>(null);
+
+  // Sync real browser full-screen transitions
+  useEffect(() => {
+    const onFullscreenChange = () => {
+      const isCurrentlyFullscreen = !!document.fullscreenElement;
+      if (!isCurrentlyFullscreen) {
+        setIsFullscreenDraw(false);
+        setIsFullscreenWinners(false);
+      }
+    };
+    document.addEventListener("fullscreenchange", onFullscreenChange);
+    return () => document.removeEventListener("fullscreenchange", onFullscreenChange);
+  }, []);
+
+  // Listen to Escape key as fallback
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        if (isFullscreenDraw) {
+          setIsFullscreenDraw(false);
+          if (document.fullscreenElement) {
+            document.exitFullscreen().catch(() => {});
+          }
+        }
+        if (isFullscreenWinners) {
+          setIsFullscreenWinners(false);
+          if (document.fullscreenElement) {
+            document.exitFullscreen().catch(() => {});
+          }
+        }
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isFullscreenDraw, isFullscreenWinners]);
+
+  const toggleFullscreenDraw = () => {
+    if (!isFullscreenDraw) {
+      setIsFullscreenDraw(true);
+      if (drawContainerRef.current) {
+        drawContainerRef.current.requestFullscreen().catch((err) => {
+          console.warn("Browser Fullscreen failed, falling back to clean virtual fullscreen:", err);
+        });
+      }
+    } else {
+      setIsFullscreenDraw(false);
+      if (document.fullscreenElement) {
+        document.exitFullscreen().catch(() => {});
+      }
+    }
+  };
+
+  const toggleFullscreenWinners = () => {
+    if (!isFullscreenWinners) {
+      setIsFullscreenWinners(true);
+      if (winnersContainerRef.current) {
+        winnersContainerRef.current.requestFullscreen().catch((err) => {
+          console.warn("Browser Fullscreen failed, falling back to clean virtual fullscreen:", err);
+        });
+      }
+    } else {
+      setIsFullscreenWinners(false);
+      if (document.fullscreenElement) {
+        document.exitFullscreen().catch(() => {});
+      }
+    }
+  };
 
   // Synchronize current prize selection with dynamic prizes prop
   useEffect(() => {
@@ -57,6 +138,30 @@ export default function LuckyDraw({
       }
     }
   }, [prizes, currentPrizeName]);
+
+  const [digitPads, setDigitPads] = useState<string[]>(["0", "0", "0"]);
+
+  // Staggered or concurrent scrambling behavior for the digit boards
+  useEffect(() => {
+    if (isSpinning) {
+      const interval = setInterval(() => {
+        setDigitPads([
+          Math.floor(Math.random() * 10).toString(),
+          Math.floor(Math.random() * 10).toString(),
+          Math.floor(Math.random() * 10).toString()
+        ]);
+      }, 50);
+      return () => clearInterval(interval);
+    } else {
+      if (winner) {
+        // Extract sequence digits from ID and pad to 3 spaces
+        const idStr = String(winner.id).trim();
+        setDigitPads(idStr.padStart(3, "0").split(""));
+      } else {
+        setDigitPads(["0", "0", "0"]);
+      }
+    }
+  }, [isSpinning, winner]);
 
   const spinIntervalRef = useRef<number | null>(null);
 
@@ -151,6 +256,25 @@ export default function LuckyDraw({
       return;
     }
 
+    // Look up current active prize config to enforce limit
+    const activePrize = prizes.find((p) => p.name === currentPrizeName);
+    if (activePrize) {
+      const drawnCountForCurrentPrize = participants.filter(
+        (p) => p.isWinner && p.wonPrizeName === currentPrizeName
+      ).length;
+      const remainingCount = activePrize.amount - drawnCountForCurrentPrize;
+
+      if (remainingCount <= 0) {
+        alert(`❌ ของรางวัลนี้จับครบตามจำนวนแล้ว!\n\nรางวัล "${currentPrizeName}" ถูกจับครบหมดแล้ว (${activePrize.amount}/${activePrize.amount} ชิ้น) ไม่สามารถจับเพิ่มได้อีก!\n\nหากต้องการสุ่มเพิ่ม กรุณาเพิ่มจำนวนชิ้นของรางวัลนี้ในแดชบอร์ดสตาฟฟ์`);
+        return;
+      }
+
+      if (spinCount === 10 && remainingCount < 10) {
+        alert(`❌ ของรางวัลคงเหลือไม่พอสำหรับสุ่ม 10 คน!\n\nรางวัล "${currentPrizeName}" เหลือโควตาว่างสำหรับสุ่มเพียง ${remainingCount} ชิ้นเท่านั้น ไม่สามารถสุ่มทีเดียว 10 คนได้\n\n(กรุณาสุ่มทีละ 1 คน หรือเพิ่มจำนวนชิ้นของรางวัลนี้ในแดชบอร์ดสตาฟฟ์ก่อน)`);
+        return;
+      }
+    }
+
     setIsSpinning(true);
     setWinner(null);
     setMultiWinners([]);
@@ -225,25 +349,45 @@ export default function LuckyDraw({
                 ไม่มีของรางวัลในระบบขณะนี้ กรุณากรอกเพิ่มในดีชบอร์ดสตาฟฟ์!
               </div>
             ) : (
-              prizes.map((prize) => (
-                <button
-                  key={prize.id}
-                  onClick={() => setCurrentPrizeName(prize.name)}
-                  className={`w-full text-left px-3.5 py-2.5 text-sm rounded-xl border transition-all flex justify-between items-center cursor-pointer ${
-                    currentPrizeName === prize.name
-                      ? "bg-white text-black border-white font-bold shadow-[0_0_15px_rgba(255,255,255,0.15)]"
-                      : "bg-white/5 border-white/10 text-white/70 hover:border-white/20 hover:text-white"
-                  }`}
-                >
-                  <span className="truncate">{prize.name}</span>
-                  <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-white/10 text-white/80 font-mono shrink-0">
-                    {prize.amount} ชิ้น
-                  </span>
-                  {currentPrizeName === prize.name && (
-                    <span className="w-2 h-2 bg-pink-500 rounded-full animate-ping shrink-0" />
-                  )}
-                </button>
-              ))
+              prizes.map((prize) => {
+                const prizeDrawnCount = participants.filter(
+                  (p) => p.isWinner && p.wonPrizeName === prize.name
+                ).length;
+                const isFullyDrawn = prizeDrawnCount >= prize.amount;
+                return (
+                  <button
+                    key={prize.id}
+                    onClick={() => setCurrentPrizeName(prize.name)}
+                    className={`w-full text-left px-3.5 py-2.5 text-sm rounded-xl border transition-all flex justify-between items-center cursor-pointer ${
+                      currentPrizeName === prize.name
+                        ? "bg-white text-black border-white font-bold shadow-[0_0_15px_rgba(255,255,255,0.15)]"
+                        : "bg-white/5 border-white/10 text-white/70 hover:border-white/20 hover:text-white"
+                    }`}
+                  >
+                    <span className="truncate mr-2">{prize.name}</span>
+                    {isFullyDrawn ? (
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                        currentPrizeName === prize.name
+                          ? "bg-red-500 text-white"
+                          : "bg-red-500/20 text-red-300 border border-red-500/30"
+                      } font-mono shrink-0`}>
+                        หมดแล้ว ({prizeDrawnCount}/{prize.amount})
+                      </span>
+                    ) : (
+                      <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                        currentPrizeName === prize.name
+                          ? "bg-black/10 text-black"
+                          : "bg-white/10 text-white/80"
+                      } font-mono shrink-0`}>
+                        {prizeDrawnCount}/{prize.amount} ชิ้น
+                      </span>
+                    )}
+                    {currentPrizeName === prize.name && !isFullyDrawn && (
+                      <span className="w-2 h-2 ml-1.5 bg-pink-500 rounded-full animate-ping shrink-0" />
+                    )}
+                  </button>
+                );
+              })
             )}
           </div>
         </div>
@@ -290,11 +434,30 @@ export default function LuckyDraw({
 
       {/* Main lucky wheel block (Full Center Stage) */}
       <div className="lg:col-span-3 flex flex-col justify-between items-center space-y-6">
-        <div className="w-full glass-panel rounded-[32px] p-8 shadow-2xl flex flex-col justify-center items-center text-center relative overflow-hidden min-h-[460px]">
+        <div
+          ref={drawContainerRef}
+          className={`${
+            isFullscreenDraw
+              ? "fixed inset-0 z-50 overflow-y-auto flex flex-col justify-center items-center bg-[#050110] p-8 md:p-16 text-center"
+              : "w-full glass-panel rounded-[32px] p-8 shadow-2xl flex flex-col justify-center items-center text-center relative overflow-hidden min-h-[460px]"
+          }`}
+        >
           
           {/* Corner Graphic Accents from Frosted Glass Theme */}
           <div className="absolute top-0 left-0 w-12 h-12 border-t-2 border-l-2 border-purple-500/70 rounded-tl-[32px]"></div>
           <div className="absolute bottom-0 right-0 w-12 h-12 border-b-2 border-r-2 border-pink-500/70 rounded-br-[32px]"></div>
+
+          {/* Top-right corner controls */}
+          <div className="absolute top-6 right-6 z-20 flex items-center gap-2">
+            <button
+              type="button"
+              onClick={toggleFullscreenDraw}
+              className="p-2.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-2xl text-white/70 hover:text-white transition-all cursor-pointer flex items-center justify-center shadow-lg"
+              title={isFullscreenDraw ? "ย่อหน้าจอ (Exit Fullscreen)" : "เต็มหน้าจอภาพสุ่ม (Fullscreen)"}
+            >
+              {isFullscreenDraw ? <Minimize2 className="w-5 h-5 text-pink-400" /> : <Maximize2 className="w-5 h-5" />}
+            </button>
+          </div>
 
           {/* Animated decorative sparks inside the box */}
           <div className="absolute top-4 left-4 text-pink-500/20 animate-pulse">
@@ -304,8 +467,40 @@ export default function LuckyDraw({
             <Sparkles className="w-12 h-12" />
           </div>
 
-          <div className="flex flex-col sm:flex-row items-center gap-3 mb-6 relative z-10">
-            <span className="px-4 py-1.5 rounded-full border border-yellow-500/30 bg-yellow-500/10 text-yellow-300 text-xs sm:text-sm font-semibold tracking-wider uppercase">
+          {/* Dynamic System Brand/Logo Header on screen */}
+          <div className="flex flex-col items-center justify-center gap-3 mb-6 relative z-10 select-none">
+            {logoUrl ? (
+              <img
+                src={logoUrl}
+                alt="System Logo"
+                className="w-[200px] h-auto object-contain"
+                referrerPolicy="no-referrer"
+              />
+            ) : (
+              <div className={`rounded-full bg-gradient-to-tr from-purple-500 to-pink-500 flex items-center justify-center text-white font-extrabold italic shadow-2xl shadow-purple-500/30 border border-white/10 transition-all ${
+                isFullscreenDraw ? "w-24 h-24 text-4xl" : "w-16 h-16 text-2xl"
+              }`}>
+                {systemTitle.charAt(0) || "N"}
+              </div>
+            )}
+            <div className="text-center">
+              <h2 className={`font-black tracking-tight bg-gradient-to-r from-white via-indigo-200 to-white bg-clip-text text-transparent uppercase ${
+                isFullscreenDraw ? "text-3xl md:text-5xl" : "text-xl md:text-2xl"
+              }`}>
+                {systemTitle}
+              </h2>
+              {systemSubtitle && (
+                <p className={`text-pink-400 font-bold uppercase tracking-widest mt-0.5 ${
+                  isFullscreenDraw ? "text-base" : "text-[10px]"
+                }`}>
+                  {systemSubtitle}
+                </p>
+              )}
+            </div>
+          </div>
+
+          <div className="flex flex-col sm:flex-row items-center gap-x-3 gap-y-2 mb-6 relative z-10 justify-center">
+            <span className="px-4 py-1.5 rounded-full border border-yellow-500/30 bg-yellow-500/10 text-yellow-300 text-xs sm:text-sm font-semibold tracking-wider uppercase flex items-center gap-1.5 justify-center">
               🏆 กำลังจับรางวัลรอบ: {currentPrizeName}
             </span>
             <div className="flex bg-white/5 border border-white/10 rounded-full p-0.5 gap-1 shadow-inner">
@@ -350,22 +545,32 @@ export default function LuckyDraw({
           <div className="w-full max-w-5xl my-6 flex flex-col items-center justify-center relative min-h-[160px]">
             <AnimatePresence mode="popLayout">
               {/* Spinning State */}
-              {isSpinning && spinIndex !== null && availablePool[spinIndex] && (
+              {isSpinning && (
                 <motion.div
                   key="spinning-number"
                   initial={{ opacity: 0, scale: 0.82, filter: "blur(8px)" }}
                   animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
                   exit={{ opacity: 0, scale: 1.15, filter: "blur(4px)" }}
-                  transition={{ duration: 0.08 }}
-                  className="space-y-4 text-center"
+                  transition={{ duration: 0.1 }}
+                  className="space-y-6 text-center flex flex-col items-center w-full"
                 >
                   <div className="font-mono text-[#FF2E93] font-bold text-lg uppercase tracking-[0.25em] animate-pulse">
-                    ⚡ RUNNING NUMBER / กำลังสุ่มหมายเลขลำดับผู้เข้างาน...
+                    ⚡ RUNNING NUMBER / กำลังสุ่มตัวเลขทุกหลักพร้อมกัน...
                   </div>
-                  <div className="py-2.5">
-                    <span className="text-8xl sm:text-9xl lg:text-[11rem] font-bold font-mono bg-gradient-to-r from-yellow-300 via-pink-400 to-purple-400 bg-clip-text text-transparent drop-shadow-[0_0_35px_rgba(236,72,153,0.45)] tracking-widest select-none leading-none">
-                      {String(availablePool[spinIndex].id).padStart(3, "0")}
-                    </span>
+                  <div className="flex gap-3 sm:gap-4 md:gap-6 justify-center items-center my-4 select-none flex-wrap">
+                    {digitPads.map((digit, index) => (
+                      <div
+                        key={index}
+                        className="bg-[#A855F7] text-black text-6xl sm:text-8xl md:text-9xl lg:text-[11rem] w-20 h-28 sm:w-28 sm:h-40 md:w-36 md:h-52 lg:w-44 lg:h-64 rounded-2xl md:rounded-[2rem] flex items-center justify-center font-black font-mono shadow-[0_0_55px_rgba(168,85,247,0.55)] border-[4px] border-purple-200 leading-none relative overflow-hidden animate-bounce"
+                        style={{
+                          animationDuration: `${0.12 + index * 0.04}s`,
+                        }}
+                      >
+                        <div className="absolute inset-x-0 top-0 h-[2px] bg-white/40 pointer-events-none" />
+                        <span className="relative z-10">{digit}</span>
+                        <div className="absolute inset-0 bg-gradient-to-tr from-white/0 via-white/5 to-white/10 pointer-events-none" />
+                      </div>
+                    ))}
                   </div>
                   <div className="text-white/40 font-mono text-xs uppercase tracking-widest">
                     HOLDING BREATH / กรุณารอลุ้นหมายเลข...
@@ -380,15 +585,38 @@ export default function LuckyDraw({
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   exit={{ opacity: 0 }}
-                  className="text-center py-6"
+                  className="space-y-6 text-center flex flex-col items-center w-full"
                 >
-                  <p className="text-white/60 font-light max-w-md text-base leading-relaxed">
-                    มีรายชื่อสำรองในระบบทั้งหมด <span className="text-pink-400 font-bold">{availablePool.length} คน</span> ที่พร้อมรับโชคชิ้นนี้!
-                  </p>
-                  <p className="text-pink-400/80 text-xs font-semibold tracking-widest mt-3 flex items-center justify-center gap-1.5">
-                    <Compass className="w-4 h-4 animate-spin text-pink-500" />
-                    กดปุ่ม SPIN ดำเนินการสุ่มทันที
-                  </p>
+                  <div className="font-mono text-purple-400 font-semibold text-lg uppercase tracking-widest animate-pulse">
+                    READY TO SPIN / ลำดับผู้ลงทะเบียนพร้อมสุ่ม...
+                  </div>
+                  
+                  {/* Purple/Black digit boxes before starting to spin */}
+                  <div className="flex gap-3 sm:gap-4 md:gap-6 justify-center items-center my-4 select-none flex-wrap">
+                    {digitPads.map((digit, index) => (
+                      <motion.div
+                        key={index}
+                        initial={{ scale: 0.9, opacity: 0 }}
+                        animate={{ scale: 1, opacity: 1 }}
+                        transition={{ delay: index * 0.08, type: "spring" }}
+                        className="bg-[#A855F7] text-black text-6xl sm:text-8xl md:text-9xl lg:text-[11rem] w-20 h-28 sm:w-28 sm:h-40 md:w-36 md:h-52 lg:w-44 lg:h-64 rounded-2xl md:rounded-[2rem] flex items-center justify-center font-black font-mono shadow-[0_0_40px_rgba(168,85,247,0.4)] border-[3px] border-purple-300 leading-none relative overflow-hidden"
+                      >
+                        <div className="absolute inset-x-0 top-0 h-[2px] bg-white/30 pointer-events-none" />
+                        <span className="relative z-10">{digit}</span>
+                        <div className="absolute inset-0 bg-gradient-to-tr from-white/0 via-white/5 to-white/10 pointer-events-none" />
+                      </motion.div>
+                    ))}
+                  </div>
+
+                  <div className="text-center">
+                    <p className="text-white/60 font-light max-w-md text-base leading-relaxed">
+                      มีรายชื่อสำรองในระบบทั้งหมด <span className="text-pink-400 font-bold">{availablePool.length} คน</span> ที่พร้อมรับโชคชิ้นนี้!
+                    </p>
+                    <p className="text-pink-400/80 text-xs font-semibold tracking-widest mt-3 flex items-center justify-center gap-1.5 uppercase">
+                      <Compass className="w-4 h-4 animate-spin text-pink-500" />
+                      กดปุ่ม SPIN ดำเนินการสุ่มทันที
+                    </p>
+                  </div>
                 </motion.div>
               )}
 
@@ -407,10 +635,27 @@ export default function LuckyDraw({
                     damping: 12,
                     stiffness: 110
                   }}
-                  className="text-center relative z-10 p-2"
+                  className="text-center relative z-10 p-2 flex flex-col items-center w-full"
                 >
                   <div className="text-amber-400 font-bold text-lg sm:text-xl uppercase tracking-widest bg-amber-500/10 border border-amber-500/30 px-4 py-1.5 rounded-full inline-flex items-center gap-1.5 mb-4 glow-text-yellow">
                     🎉 <Sparkles className="w-4 h-4" /> THE LUCKY WINNER IS <Sparkles className="w-4 h-4" /> 🎉
+                  </div>
+
+                  {/* Winner sequence ID shown in purple backdrop cards */}
+                  <div className="flex gap-2 sm:gap-3 md:gap-4 justify-center items-center mb-6 select-none scale-90 sm:scale-95 md:scale-100 flex-wrap">
+                    {digitPads.map((digit, index) => (
+                      <motion.div
+                        key={index}
+                        initial={{ scale: 0.5, rotateY: 180 }}
+                        animate={{ scale: 1, rotateY: 0 }}
+                        transition={{ delay: index * 0.1, type: "spring", stiffness: 150 }}
+                        className="bg-[#A855F7] text-black text-5xl sm:text-7xl md:text-8xl lg:text-9xl w-16 h-24 sm:w-24 sm:h-34 md:w-30 md:h-44 rounded-xl md:rounded-[1.5rem] flex items-center justify-center font-black font-mono shadow-[0_0_45px_rgba(168,85,247,0.45)] border-[2.5px] border-purple-200 leading-none relative overflow-hidden"
+                      >
+                        <div className="absolute inset-x-0 top-0 h-[1.5px] bg-white/40 pointer-events-none" />
+                        <span className="relative z-10">{digit}</span>
+                        <div className="absolute inset-0 bg-gradient-to-tr from-white/0 via-white/5 to-white/10 pointer-events-none" />
+                      </motion.div>
+                    ))}
                   </div>
 
                   {/* Gigantic Title - Projector optimized (4K clean style) */}
@@ -419,7 +664,7 @@ export default function LuckyDraw({
                   </div>
 
                   <div className="text-xl sm:text-2xl font-semibold text-white mt-2 flex items-center justify-center gap-2">
-                    <span className="text-white/40 font-light">ฝ่าย / เบอร์โทร:</span>
+                    <span className="text-white/40 font-light">ฝ่าย / หน่วยงาน:</span>
                     <span className="text-emerald-400">{winner.department}</span>
                   </div>
 
@@ -513,62 +758,105 @@ export default function LuckyDraw({
         </div>
 
         {/* Bottom Panel: Winner Table for Verification */}
-        <div className="w-full glass-panel rounded-3xl p-6 shadow-2xl">
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-white/10 pb-4 mb-4 gap-4">
+        <div
+          ref={winnersContainerRef}
+          className={`${
+            isFullscreenWinners
+              ? "fixed inset-0 z-50 overflow-y-auto flex flex-col bg-[#050110] p-8 md:p-16"
+              : "w-full glass-panel rounded-3xl p-6 shadow-2xl"
+          }`}
+        >
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-white/10 pb-4 mb-4 gap-4 relative">
             <div>
-              <h4 className="text-lg font-bold text-white flex items-center gap-2 uppercase tracking-wider">
-                <Sparkles className="w-5 h-5 text-yellow-400" />
+              <h4 className={`${isFullscreenWinners ? "text-2xl md:text-3xl font-black" : "text-lg font-bold"} text-white flex items-center gap-2 uppercase tracking-wider`}>
+                <Sparkles className={`${isFullscreenWinners ? "w-7 h-7" : "w-5 h-5"} text-yellow-400`} />
                 <span>ทำเนียบผู้ได้รับรางวัลเกียรติยศ ({winners.length})</span>
               </h4>
-              <p className="text-xs text-white/50 font-light mt-0.5">
+              <p className={`${isFullscreenWinners ? "text-sm text-white/60 mt-1.5" : "text-xs text-white/50 mt-0.5"} font-light`}>
                 รายชื่อสุ่มได้จะถูกบันทึกที่นี่โดยอัตโนมัติ เจ้าหน้าที่สามารถลบผู้โชคดีคืนได้หากสปินกรณีผิดพลาด
               </p>
             </div>
-            {winners.length > 0 && (
+            
+            <div className="flex items-center gap-2.5 shrink-0 self-end sm:self-auto">
+              {winners.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (confirm("ต้องการรีเซ็ตประวัติผู้ได้รับรางวัลทั้งหมดใช่หรือไม่?")) {
+                      onResetAllWinners();
+                      setWinner(null);
+                      setMultiWinners([]);
+                    }
+                  }}
+                  className={`${isFullscreenWinners ? "text-sm px-5 py-3" : "text-xs px-3.5 py-2"} font-semibold text-red-300 hover:text-red-200 border border-red-500/20 bg-red-500/5 hover:bg-red-500/10 rounded-xl flex items-center gap-1.5 transition-all cursor-pointer`}
+                >
+                  <ListRestart className={`${isFullscreenWinners ? "w-4.5 h-4.5" : "w-3.5 h-3.5"}`} />
+                  ล้างผู้ได้รับรางวัลทั้งหมด
+                </button>
+              )}
+              
               <button
-                onClick={() => {
-                  if (confirm("ต้องการรีเซ็ตประวัติผู้ได้รับรางวัลทั้งหมดใช่หรือไม่?")) {
-                    onResetAllWinners();
-                    setWinner(null);
-                  }
-                }}
-                className="text-xs font-semibold text-red-300 hover:text-red-200 border border-red-500/20 bg-red-500/5 hover:bg-red-500/10 px-3.5 py-2 rounded-xl flex items-center gap-1.5 transition-all cursor-pointer"
+                type="button"
+                onClick={toggleFullscreenWinners}
+                className={`${isFullscreenWinners ? "p-3 bg-white/10 hover:bg-white/15" : "px-3.5 py-2 bg-white/5 hover:bg-white/10"} border border-white/10 rounded-xl text-xs font-semibold text-white/80 hover:text-white flex items-center gap-1.5 transition-all cursor-pointer shadow-sm`}
+                title={isFullscreenWinners ? "ย่อหน้าจอ (Exit Fullscreen)" : "เต็มจอภาพทำเนียบรางวัล (Fullscreen)"}
               >
-                <ListRestart className="w-3.5 h-3.5" />
-                ล้างผู้ได้รับรางวัลทั้งหมด
+                {isFullscreenWinners ? (
+                  <>
+                    <Minimize2 className="w-4 h-4 text-pink-400" />
+                    <span>ย่อจอ</span>
+                  </>
+                ) : (
+                  <>
+                    <Maximize2 className="w-3.5 h-3.5" />
+                    <span>เต็มจอ</span>
+                  </>
+                )}
               </button>
-            )}
+            </div>
           </div>
-
+ 
           {winners.length === 0 ? (
-            <div className="text-center py-8 text-sm text-white/40 font-light">
+            <div className={`text-center ${isFullscreenWinners ? "py-24 text-lg text-white/30" : "py-8 text-sm text-white/40"} font-light`}>
               🏆 ยังไม่มีใครได้รับรางวัลประดับประดาบอร์ดในขณะนี้
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 max-h-48 overflow-y-auto pr-1 scrollbar-none">
+            <div className={`grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4 ${isFullscreenWinners ? "flex-1 overflow-y-auto mt-6 pr-1 pb-10" : "max-h-48 overflow-y-auto pr-1 scrollbar-none"}`}>
               {winners.map((winner) => (
                 <div
                   key={winner.id}
-                  className="bg-white/[0.02] border border-white/5 rounded-2xl p-3.5 flex justify-between items-center transition-all hover:border-white/10 shadow-sm"
+                  className={`bg-white/[0.02] border border-white/5 rounded-2xl flex justify-between items-center transition-all hover:bg-white/5 hover:border-white/10 shadow-sm ${isFullscreenWinners ? "p-5 md:p-6" : "p-3.5"}`}
                 >
-                  <div className="min-w-0 flex-1 pr-2">
-                    <div className="text-sm font-bold text-yellow-300 truncate">{winner.fullName}</div>
-                    <div className="text-xs text-white/50 truncate">แผนก: {winner.department}</div>
-                    <div className="text-[10px] text-yellow-300 mt-1 uppercase tracking-widest truncate bg-yellow-500/10 px-2 py-0.5 rounded-full inline-block border border-yellow-500/20">
-                      🎁 {winner.wonPrizeName || "รางวัล"}
+                  <div className="flex items-center gap-3.5 min-w-0 flex-1 pr-2">
+                    {/* Big prominent ID number in front */}
+                    <div className={`bg-[#A855F7] text-black font-black font-mono flex items-center justify-center rounded-xl shrink-0 shadow-[0_0_12px_rgba(168,85,247,0.35)] border border-purple-300 select-none ${
+                      isFullscreenWinners 
+                        ? "text-2xl md:text-3xl w-14 h-14 md:w-16 md:h-16 rounded-2xl" 
+                        : "text-base sm:text-lg w-10 h-10 sm:w-11 sm:h-11"
+                    }`}>
+                      {String(winner.id).startsWith("S") ? winner.id : String(winner.id).padStart(3, "0")}
+                    </div>
+
+                    <div className="min-w-0 flex-1">
+                      <div className={`${isFullscreenWinners ? "text-lg md:text-xl" : "text-sm"} font-bold text-yellow-300 truncate`}>{winner.fullName}</div>
+                      <div className={`${isFullscreenWinners ? "text-sm mt-0.5" : "text-xs"} text-white/50 truncate`}>แผนก: {winner.department}</div>
+                      <div className={`${isFullscreenWinners ? "text-xs mt-2 px-3 py-1" : "text-[10px] mt-1 px-2 py-0.5"} text-yellow-300 uppercase tracking-widest truncate bg-yellow-500/10 rounded-full inline-block border border-yellow-500/20`}>
+                        🎁 {winner.wonPrizeName || "รางวัล"}
+                      </div>
                     </div>
                   </div>
                   <button
                     onClick={() => {
                       if (confirm(`ยกเลิกประวัติรางวัลของ ${winner.fullName} คืนผู้ได้รับรางวัลสู่ระบบสุ่ม?`)) {
                         onResetWinner(winner.id);
-                        setWinner(null);
+                        setWinner((current) => (current && current.id === winner.id ? null : current));
+                        setMultiWinners((prev) => prev.filter((w) => w.id !== winner.id));
                       }
                     }}
-                    className="p-2 border border-white/5 text-white/30 hover:text-red-400 hover:border-red-500/20 hover:bg-red-500/10 rounded-xl transition-all cursor-pointer"
+                    className={`border border-white/5 text-white/30 hover:text-red-400 hover:border-red-500/20 hover:bg-red-500/10 rounded-xl transition-all cursor-pointer ${isFullscreenWinners ? "p-3" : "p-2"}`}
                     title="ลบสิทธิ์และส่งกลับหมวดสุ่มใหม่"
                   >
-                    <Trash2 className="w-3.5 h-3.5" />
+                    <Trash2 className={`${isFullscreenWinners ? "w-4.5 h-4.5" : "w-3.5 h-3.5"}`} />
                   </button>
                 </div>
               ))}
