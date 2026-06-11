@@ -4,7 +4,7 @@
  */
 
 import React, { useState } from "react";
-import { Participant } from "../types";
+import { Participant, Prize } from "../types";
 import { motion, AnimatePresence } from "motion/react";
 import {
   Users,
@@ -24,21 +24,38 @@ import {
 
 interface LobbyProps {
   participants: Participant[];
+  prizes: Prize[];
   onAddParticipant: (fullName: string, department: string) => Participant | null;
   onRemoveParticipant: (id: string) => void;
   onClearAll: () => void;
   onImportParticipants: (imported: Participant[]) => void;
   onSwitchToLuckyDraw: () => void;
+  onUpdatePrizes: (newPrizes: Prize[]) => void;
 }
 
 export default function Lobby({
   participants,
+  prizes = [],
   onAddParticipant,
   onRemoveParticipant,
   onClearAll,
   onImportParticipants,
-  onSwitchToLuckyDraw
+  onSwitchToLuckyDraw,
+  onUpdatePrizes
 }: LobbyProps) {
+  // Staff security login
+  const [isLoggedIn, setIsLoggedIn] = useState(() => sessionStorage.getItem("staff_logged_in") === "true");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [loginError, setLoginError] = useState("");
+
+  // Prize management states
+  const [newPrizeLabel, setNewPrizeLabel] = useState("");
+  const [newPrizeAmountVal, setNewPrizeAmountVal] = useState<number>(1);
+  const [editingPrizeId, setEditingPrizeId] = useState<string | null>(null);
+  const [editingPrizeName, setEditingPrizeName] = useState("");
+  const [editingPrizeAmount, setEditingPrizeAmount] = useState<number>(1);
+
   const [searchQuery, setSearchQuery] = useState("");
   const [filterWinner, setFilterWinner] = useState<"all" | "eligible" | "won">("all");
   
@@ -50,6 +67,65 @@ export default function Lobby({
 
   // QR Code Panel states
   const [showQRModal, setShowQRModal] = useState(false);
+
+  const handleLoginSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (username === "administrator" && password === "m2k3dwin") {
+      setIsLoggedIn(true);
+      sessionStorage.setItem("staff_logged_in", "true");
+      setLoginError("");
+    } else {
+      setLoginError("คุณป้อน Username หรือ Password ไม่ถูกต้อง!");
+    }
+  };
+
+  const handleAddPrizeSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newPrizeLabel.trim() || newPrizeAmountVal <= 0) {
+      alert("กรุณากรอกชื่อรางวัล และจำนวนที่ถูกต้อง");
+      return;
+    }
+    const newPrizeItem: Prize = {
+      id: "p_" + Date.now(),
+      name: newPrizeLabel.trim(),
+      amount: newPrizeAmountVal,
+      drawnCount: 0
+    };
+    onUpdatePrizes([...prizes, newPrizeItem]);
+    setNewPrizeLabel("");
+    setNewPrizeAmountVal(1);
+  };
+
+  const handleDeletePrize = (id: string) => {
+    if (confirm("ต้องการลบของรางวัลชิ้นนี้ใช่หรือไม่?")) {
+      onUpdatePrizes(prizes.filter(p => p.id !== id));
+    }
+  };
+
+  const handleStartEditPrize = (prize: Prize) => {
+    setEditingPrizeId(prize.id);
+    setEditingPrizeName(prize.name);
+    setEditingPrizeAmount(prize.amount);
+  };
+
+  const handleSaveEditPrize = (id: string) => {
+    if (!editingPrizeName.trim() || editingPrizeAmount <= 0) {
+      alert("กรุณากรอกชื่อรางวัล และจำนวนที่ถูกต้อง");
+      return;
+    }
+    const updated = prizes.map(p => {
+      if (p.id === id) {
+        return {
+          ...p,
+          name: editingPrizeName.trim(),
+          amount: editingPrizeAmount
+        };
+      }
+      return p;
+    });
+    onUpdatePrizes(updated);
+    setEditingPrizeId(null);
+  };
 
   // Search and filter logic
   const filteredList = participants.filter((p) => {
@@ -113,8 +189,8 @@ export default function Lobby({
                 typeof item.isWinner === "boolean"
             );
             if (valid) {
-              onImportParticipants(parsed);
-              alert(`นำเข้ารายชื่อเรียบร้อยแล้วจำนวน ${parsed.length} รายชื่อ!`);
+               onImportParticipants(parsed);
+               alert(`นำเข้ารายชื่อเรียบร้อยแล้วจำนวน ${parsed.length} รายชื่อ!`);
             } else {
               alert("รูปแบบไฟล์ไม่ถูกต้อง กรุณาใช้ไฟล์ที่ส่งออกจากระบบนี้");
             }
@@ -148,8 +224,102 @@ export default function Lobby({
   const registrationLink = window.location.href;
   const qrImageSrc = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&color=236-72-153&bgcolor=11-8-26&data=${encodeURIComponent(registrationLink)}`;
 
+  if (!isLoggedIn) {
+    return (
+      <div className="w-full max-w-md mx-auto px-4 py-12 animate-fadeIn" id="login-panel">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="glass-panel rounded-[32px] p-8 shadow-2xl relative overflow-hidden text-center border border-white/10"
+        >
+          {/* Decorative Corner Accents */}
+          <div className="absolute top-0 left-0 w-10 h-10 border-t-2 border-l-2 border-purple-500/70 rounded-tl-[24px]"></div>
+          <div className="absolute bottom-0 right-0 w-10 h-10 border-b-2 border-r-2 border-pink-500/70 rounded-br-[24px]"></div>
+
+          <div className="space-y-2 mb-6">
+            <span className="bg-purple-500/10 border border-purple-500/20 text-purple-300 text-xs font-semibold px-3 py-1.5 rounded-full uppercase tracking-wider inline-block">
+              Staff Portal Security
+            </span>
+            <h3 className="text-2xl font-black text-white uppercase tracking-wider">
+              แผงควบคุมสตาฟฟ์
+            </h3>
+            <p className="text-white/60 text-xs font-light">
+              กรุณาเข้าสู่ระบบด้วยสิทธิ์ผู้ดูแลระบบ เพื่อสับเปลี่ยนของรางวัลและจัดการผู้ลงทะเบียน
+            </p>
+          </div>
+
+          <form onSubmit={handleLoginSubmit} className="space-y-4 text-left">
+            <div>
+              <label className="block text-xs font-semibold uppercase text-white/50 mb-1.5 tracking-wide">
+                ชื่อผู้ใช้งาน (Username)
+              </label>
+              <input
+                type="text"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder="ป้อนชื่อผู้ใช้งาน..."
+                className="w-full glass-input rounded-xl px-4 py-2.5 text-sm text-white placeholder-white/30 focus:outline-none"
+                required
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold uppercase text-white/50 mb-1.5 tracking-wide">
+                รหัสผ่าน (Password)
+              </label>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="ป้อนรหัสผ่าน..."
+                className="w-full glass-input rounded-xl px-4 py-2.5 text-sm text-white placeholder-white/30 focus:outline-none"
+                required
+              />
+            </div>
+
+            {loginError && (
+              <motion.div
+                initial={{ opacity: 0, y: -5 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="text-xs text-red-300 bg-red-500/10 border border-red-500/20 rounded-xl px-3 py-2 text-center font-medium"
+              >
+                ⚠️ {loginError}
+              </motion.div>
+            )}
+
+            <button
+              type="submit"
+              className="w-full bg-gradient-to-r from-purple-500 via-violet-600 to-pink-500 hover:opacity-95 text-white font-extrabold py-3.5 rounded-xl text-xs transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-md uppercase tracking-wider"
+            >
+              เข้าสู่ระบบสตาฟฟ์ 🔓
+            </button>
+          </form>
+        </motion.div>
+      </div>
+    );
+  }
+
   return (
-    <div className="max-w-7xl mx-auto px-4 py-2 space-y-8" id="lobby-panel">
+    <div className="max-w-7xl mx-auto px-4 py-2 space-y-6" id="lobby-panel">
+      {/* Top Staff Toolbar */}
+      <div className="flex flex-col sm:flex-row justify-between items-center bg-white/[0.02] border border-white/10 rounded-2xl p-4 gap-3">
+        <div className="flex items-center gap-2">
+          <span className="w-2.5 h-2.5 bg-emerald-400 rounded-full animate-ping" />
+          <span className="text-xs text-white/70 font-semibold tracking-wider uppercase font-mono">STAFF AUTHORIZED PORTAL / แผงควบคุมระบบสตาฟฟ์</span>
+        </div>
+        <button
+          onClick={() => {
+            setIsLoggedIn(false);
+            sessionStorage.removeItem("staff_logged_in");
+            setUsername("");
+            setPassword("");
+          }}
+          className="text-xs font-bold text-red-300 hover:text-red-200 border border-red-500/20 bg-red-500/5 hover:bg-red-500/10 px-3.5 py-1.5 rounded-xl flex items-center gap-1.5 transition-all cursor-pointer shadow-sm"
+        >
+          🔐 ออกจากระบบสตาฟฟ์
+        </button>
+      </div>
+
       {/* Upper overview section */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="glass-panel rounded-3xl p-6 shadow-xl flex items-center justify-between relative overflow-hidden">
@@ -253,6 +423,124 @@ export default function Lobby({
                 <span>เพิ่มรายชื่อเข้าสู่ระบบ ＋</span>
               </button>
             </form>
+          </div>
+
+          {/* บริหารจัดการของรางวัล */}
+          <div className="glass-panel rounded-2xl p-5 shadow-xl space-y-4">
+            <h3 className="text-base font-bold text-white flex items-center gap-2 uppercase tracking-wider">
+              <Gift className="w-4 h-4 text-yellow-400 animate-pulse" />
+              <span>บริหารจัดการของรางวัล ({prizes.length})</span>
+            </h3>
+
+            {/* List current prizes with delete and edit */}
+            <div className="space-y-2 max-h-56 overflow-y-auto pr-1 scrollbar-none">
+              {prizes.length === 0 ? (
+                <div className="text-xs text-white/40 text-center py-4 font-light">
+                  ไม่มีของรางวัลในระบบขณะนี้ กรุณาเพิ่มรางวัล!
+                </div>
+              ) : (
+                prizes.map((p) => (
+                  <div
+                    key={p.id}
+                    className="bg-white/5 border border-white/10 rounded-xl p-3 flex flex-col gap-2 relative transition-all hover:bg-white/[0.08]"
+                  >
+                    {editingPrizeId === p.id ? (
+                      <div className="space-y-2">
+                        <input
+                          type="text"
+                          value={editingPrizeName}
+                          onChange={(e) => setEditingPrizeName(e.target.value)}
+                          placeholder="ชื่อรางวัล..."
+                          className="w-full glass-input rounded-lg px-2.5 py-1 text-xs text-white focus:outline-none"
+                        />
+                        <div className="flex gap-2 items-center">
+                          <input
+                            type="number"
+                            min="1"
+                            value={editingPrizeAmount}
+                            onChange={(e) => setEditingPrizeAmount(parseInt(e.target.value, 10) || 1)}
+                            className="w-20 glass-input rounded-lg px-2.5 py-1 text-xs text-white text-center focus:outline-none"
+                          />
+                          <span className="text-xs text-white/50 font-sans">ชิ้น</span>
+                          <div className="ml-auto flex gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => handleSaveEditPrize(p.id)}
+                              className="px-2.5 py-1 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 font-bold rounded text-[10px] cursor-pointer"
+                            >
+                              บันทึก
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setEditingPrizeId(null)}
+                              className="px-2.5 py-1 bg-white/10 hover:bg-white/20 text-white/70 rounded text-[10px] cursor-pointer"
+                            >
+                              ยกเลิก
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-between">
+                        <div className="min-w-0 pr-2">
+                          <span className="text-xs font-semibold text-white block truncate">{p.name}</span>
+                          <span className="text-[10px] text-white/50 font-mono">จำนวน: {p.amount} ชิ้น</span>
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => handleStartEditPrize(p)}
+                            className="p-1.5 border border-white/5 text-white/50 hover:text-yellow-400 hover:border-yellow-500/20 hover:bg-yellow-500/10 rounded-lg transition-all cursor-pointer"
+                            title="แก้ไขรางวัล"
+                          >
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                            </svg>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeletePrize(p.id)}
+                            className="p-1.5 border border-white/5 text-white/30 hover:text-red-400 hover:border-red-500/20 hover:bg-red-500/10 rounded-lg transition-all cursor-pointer"
+                            title="ลบของรางวัล"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* Quick add prize form */}
+            <div className="border-t border-white/10 pt-3.5 space-y-2.5 font-sans">
+              <span className="text-[11px] block uppercase font-bold text-white/50 tracking-wide">เพิ่มของรางวัลใหม่</span>
+              <div className="grid grid-cols-3 gap-2">
+                <input
+                  type="text"
+                  placeholder="เช่น ทองคำแท่ง 🪙"
+                  value={newPrizeLabel}
+                  onChange={(e) => setNewPrizeLabel(e.target.value)}
+                  className="col-span-2 glass-input rounded-xl px-2.5 py-1.5 text-xs text-white focus:outline-none"
+                />
+                <input
+                  type="number"
+                  min="1"
+                  placeholder="จำนวน"
+                  value={newPrizeAmountVal === 0 ? "" : newPrizeAmountVal}
+                  onChange={(e) => setNewPrizeAmountVal(parseInt(e.target.value, 10) || 0)}
+                  className="col-span-1 glass-input rounded-xl px-2.5 py-1.5 text-xs text-white text-center focus:outline-none"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={handleAddPrizeSubmit}
+                className="w-full bg-white text-black hover:bg-white/90 font-extrabold py-2 rounded-xl text-xs transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-md uppercase tracking-wider"
+              >
+                <span>เพิ่มของรางวัล ＋</span>
+              </button>
+            </div>
           </div>
 
           {/* Backup Panel: Import / Export */}

@@ -11,6 +11,17 @@ import Lobby from "./components/Lobby";
 import { Ticket, Users, Trophy, Sparkles, AlertCircle, HelpCircle } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
+const defaultPrizes: Prize[] = [
+  { id: "p1", name: "iPhone 15 Pro Max 📱", amount: 1, drawnCount: 0 },
+  { id: "p2", name: "iPad Air M2 🎨", amount: 2, drawnCount: 0 },
+  { id: "p3", name: "Nintendo Switch OLED 🎮", amount: 3, drawnCount: 0 },
+  { id: "p4", name: "AirPods Pro 2 🎧", amount: 5, drawnCount: 0 },
+  { id: "p5", name: "Marshall Emberton II 🔊", amount: 5, drawnCount: 0 },
+  { id: "p6", name: "Dyson Supersonic 💨", amount: 2, drawnCount: 0 },
+  { id: "p7", name: "บัตรของขวัญมูลค่า 5,000 บาท 💳", amount: 10, drawnCount: 0 },
+  { id: "p8", name: "ทองคำแท่ง 1 สลึง 🪙", amount: 1, drawnCount: 0 }
+];
+
 export default function App() {
   // Navigation mode state: 'register' | 'lobby' | 'draw'
   const [activeTab, setActiveTab] = useState<"register" | "lobby" | "draw">("register");
@@ -31,14 +42,24 @@ export default function App() {
       }
     }
 
-    // Prizes list config (optional future extension)
+    // Prizes list config
     const storedPrizes = localStorage.getItem("party_prizes");
     if (storedPrizes) {
       try {
-        setPrizes(JSON.parse(storedPrizes));
+        const parsed = JSON.parse(storedPrizes);
+        if (parsed && parsed.length > 0) {
+          setPrizes(parsed);
+        } else {
+          setPrizes(defaultPrizes);
+          localStorage.setItem("party_prizes", JSON.stringify(defaultPrizes));
+        }
       } catch (e) {
         console.error("Failed to parse prizes", e);
+        setPrizes(defaultPrizes);
       }
+    } else {
+      setPrizes(defaultPrizes);
+      localStorage.setItem("party_prizes", JSON.stringify(defaultPrizes));
     }
   }, []);
 
@@ -46,6 +67,11 @@ export default function App() {
   const saveParticipants = (newList: Participant[]) => {
     setParticipants(newList);
     localStorage.setItem("party_participants", JSON.stringify(newList));
+  };
+
+  const handleUpdatePrizes = (newPrizes: Prize[]) => {
+    setPrizes(newPrizes);
+    localStorage.setItem("party_prizes", JSON.stringify(newPrizes));
   };
 
   // Add a participant from Registration or Manual additions
@@ -187,13 +213,13 @@ export default function App() {
             <div>
               <div className="flex items-center gap-2">
                 <h1 className="text-lg sm:text-xl font-bold tracking-tight bg-gradient-to-r from-white via-indigo-200 to-white bg-clip-text text-transparent uppercase">
-                  Neon Night Gala 2569
+                  Carrier Staff Party
                 </h1>
                 <span className="text-[10px] font-bold text-pink-400 bg-pink-500/10 border border-pink-500/30 px-2 py-0.5 rounded uppercase tracking-widest shrink-0">
-                  LUCKY
+                  Thai Dance in the Dark
                 </span>
               </div>
-              <p className="text-[10px] text-white/50 uppercase tracking-[0.2em]">Year-End Corporate Celebration / Lucky Draw</p>
+              <p className="text-[10px] text-white/50 uppercase tracking-[0.2em]">Carrier Staff Party 2026 / Lucky Draw</p>
             </div>
           </div>
 
@@ -262,11 +288,13 @@ export default function App() {
             {activeTab === "lobby" && (
               <Lobby
                 participants={participants}
+                prizes={prizes}
                 onAddParticipant={handleRegister}
                 onRemoveParticipant={handleRemoveParticipant}
                 onClearAll={handleClearAll}
                 onImportParticipants={handleImportParticipants}
                 onSwitchToLuckyDraw={() => setActiveTab("draw")}
+                onUpdatePrizes={handleUpdatePrizes}
               />
             )}
 

@@ -34,7 +34,7 @@ interface LuckyDrawProps {
 
 export default function LuckyDraw({
   participants,
-  prizes,
+  prizes = [],
   onWinnerDrawn,
   onWinnersDrawn,
   onResetWinner,
@@ -47,19 +47,16 @@ export default function LuckyDraw({
   const [spinCount, setSpinCount] = useState<1 | 10>(1);
   const [multiWinners, setMultiWinners] = useState<Participant[]>([]);
   const [isSoundEnabled, setIsSoundEnabled] = useState(true);
-  const [prizesList, setPrizesList] = useState<string[]>([
-    "iPhone 15 Pro Max 📱",
-    "iPad Air M2 🎨",
-    "Nintendo Switch OLED 🎮",
-    "AirPods Pro 2 🎧",
-    "Marshall Emberton II 🔊",
-    "Dyson Supersonic 💨",
-    "บัตรของขวัญมูลค่า 5,000 บาท 💳",
-    "บัตรของขวัญมูลค่า 2,000 บาท 🎫",
-    "รางวัลเงินสด 3,000 บาท 💵",
-    "ทองคำแท่ง 1 สลึง 🪙"
-  ]);
-  const [newPrizeInput, setNewPrizeInput] = useState("");
+
+  // Synchronize current prize selection with dynamic prizes prop
+  useEffect(() => {
+    if (prizes && prizes.length > 0) {
+      const exists = prizes.some((p) => p.name === currentPrizeName);
+      if (!exists) {
+        setCurrentPrizeName(prizes[0].name);
+      }
+    }
+  }, [prizes, currentPrizeName]);
 
   const spinIntervalRef = useRef<number | null>(null);
 
@@ -202,14 +199,6 @@ export default function LuckyDraw({
     spinIntervalRef.current = window.setTimeout(tick, currentSpeed);
   };
 
-  const handleAddNewPrize = () => {
-    if (newPrizeInput.trim() && !prizesList.includes(newPrizeInput.trim())) {
-      setPrizesList([...prizesList, newPrizeInput.trim()]);
-      setCurrentPrizeName(newPrizeInput.trim());
-      setNewPrizeInput("");
-    }
-  };
-
   const winners = participants.filter((p) => p.isWinner);
 
   // Clear running timeout on unmount
@@ -230,39 +219,32 @@ export default function LuckyDraw({
             <Trophy className="w-5 h-5 text-yellow-400" />
             <span>เลือกรอบรางวัล</span>
           </h3>
-          <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1 scrollbar-none">
-            {prizesList.map((prize, idx) => (
-              <button
-                key={idx}
-                onClick={() => setCurrentPrizeName(prize)}
-                className={`w-full text-left px-3.5 py-2.5 text-sm rounded-xl border transition-all flex justify-between items-center cursor-pointer ${
-                  currentPrizeName === prize
-                    ? "bg-white text-black border-white font-bold shadow-[0_0_15px_rgba(255,255,255,0.15)]"
-                    : "bg-white/5 border-white/10 text-white/70 hover:border-white/20 hover:text-white"
-                }`}
-              >
-                <span className="truncate">{prize}</span>
-                {currentPrizeName === prize && (
-                  <span className="w-2 h-2 bg-pink-500 rounded-full animate-ping" />
-                )}
-              </button>
-            ))}
-          </div>
-
-          <div className="mt-3 flex gap-2">
-            <input
-              type="text"
-              value={newPrizeInput}
-              onChange={(e) => setNewPrizeInput(e.target.value)}
-              placeholder="เพิ่มของรางวัลอื่นๆ..."
-              className="flex-1 glass-input rounded-xl px-2.5 py-1.5 text-xs focus:outline-none"
-            />
-            <button
-              onClick={handleAddNewPrize}
-              className="bg-white text-black hover:bg-white/90 rounded-xl px-3 text-xs font-bold cursor-pointer flex items-center justify-center shadow-md"
-            >
-              <Plus className="w-4 h-4" />
-            </button>
+          <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1 scrollbar-none">
+            {prizes.length === 0 ? (
+              <div className="text-xs text-white/40 text-center py-4 font-light">
+                ไม่มีของรางวัลในระบบขณะนี้ กรุณากรอกเพิ่มในดีชบอร์ดสตาฟฟ์!
+              </div>
+            ) : (
+              prizes.map((prize) => (
+                <button
+                  key={prize.id}
+                  onClick={() => setCurrentPrizeName(prize.name)}
+                  className={`w-full text-left px-3.5 py-2.5 text-sm rounded-xl border transition-all flex justify-between items-center cursor-pointer ${
+                    currentPrizeName === prize.name
+                      ? "bg-white text-black border-white font-bold shadow-[0_0_15px_rgba(255,255,255,0.15)]"
+                      : "bg-white/5 border-white/10 text-white/70 hover:border-white/20 hover:text-white"
+                  }`}
+                >
+                  <span className="truncate">{prize.name}</span>
+                  <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-white/10 text-white/80 font-mono shrink-0">
+                    {prize.amount} ชิ้น
+                  </span>
+                  {currentPrizeName === prize.name && (
+                    <span className="w-2 h-2 bg-pink-500 rounded-full animate-ping shrink-0" />
+                  )}
+                </button>
+              ))
+            )}
           </div>
         </div>
 
@@ -370,21 +352,23 @@ export default function LuckyDraw({
               {/* Spinning State */}
               {isSpinning && spinIndex !== null && availablePool[spinIndex] && (
                 <motion.div
-                  key="spinning-name"
-                  initial={{ opacity: 0, scale: 0.82, filter: "blur(10px)" }}
+                  key="spinning-number"
+                  initial={{ opacity: 0, scale: 0.82, filter: "blur(8px)" }}
                   animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
-                  exit={{ opacity: 0, scale: 1.15, filter: "blur(5px)" }}
-                  transition={{ duration: 0.1 }}
-                  className="space-y-3 text-center"
+                  exit={{ opacity: 0, scale: 1.15, filter: "blur(4px)" }}
+                  transition={{ duration: 0.08 }}
+                  className="space-y-4 text-center"
                 >
-                  <div className="font-mono text-purple-400 font-semibold text-lg uppercase tracking-widest">
-                    กำลังสุ่มรายชื่อ...
+                  <div className="font-mono text-[#FF2E93] font-bold text-lg uppercase tracking-[0.25em] animate-pulse">
+                    ⚡ RUNNING NUMBER / กำลังสุ่มหมายเลขลำดับผู้เข้างาน...
                   </div>
-                  <div className="text-4xl sm:text-5xl lg:text-6xl font-black text-white tracking-tight bg-white/5 border border-white/10 rounded-2xl py-6 px-10 shadow-xl select-none inline-block">
-                    {availablePool[spinIndex].fullName}
+                  <div className="py-2.5">
+                    <span className="text-8xl sm:text-9xl lg:text-[11rem] font-bold font-mono bg-gradient-to-r from-yellow-300 via-pink-400 to-purple-400 bg-clip-text text-transparent drop-shadow-[0_0_35px_rgba(236,72,153,0.45)] tracking-widest select-none leading-none">
+                      {String(availablePool[spinIndex].id).padStart(3, "0")}
+                    </span>
                   </div>
-                  <div className="text-white/60 font-light text-base">
-                    แผนก: {availablePool[spinIndex].department}
+                  <div className="text-white/40 font-mono text-xs uppercase tracking-widest">
+                    HOLDING BREATH / กรุณารอลุ้นหมายเลข...
                   </div>
                 </motion.div>
               )}
