@@ -229,7 +229,7 @@ export default function App() {
               <img
                 src={logoUrl}
                 alt="Logo"
-                className="w-[200px] h-auto object-contain"
+                className="w-[120px] h-auto object-contain"
                 referrerPolicy="no-referrer"
               />
             ) : (

@@ -52,7 +52,7 @@ export default function LuckyDraw({
   const [isSpinning, setIsSpinning] = useState(false);
   const [spinIndex, setSpinIndex] = useState<number | null>(null);
   const [winner, setWinner] = useState<Participant | null>(null);
-  const [spinCount, setSpinCount] = useState<1 | 10>(1);
+  const [spinCount, setSpinCount] = useState<number>(1);
   const [multiWinners, setMultiWinners] = useState<Participant[]>([]);
   const [isSoundEnabled, setIsSoundEnabled] = useState(true);
 
@@ -139,7 +139,29 @@ export default function LuckyDraw({
     }
   }, [prizes, currentPrizeName]);
 
-  const [digitPads, setDigitPads] = useState<string[]>(["0", "0", "0"]);
+  const prevPrizeNameRef = useRef<string>(currentPrizeName);
+
+  // Reset states when current prize tier changes
+  useEffect(() => {
+    if (prevPrizeNameRef.current !== currentPrizeName) {
+      setWinner(null);
+      setMultiWinners([]);
+      prevPrizeNameRef.current = currentPrizeName;
+      
+      const activePrize = prizes.find((p) => p.name === currentPrizeName);
+      if (activePrize) {
+        const drawnCountForCurrentPrize = participants.filter(
+          (p) => p.isWinner && p.wonPrizeName === currentPrizeName
+        ).length;
+        const rem = Math.max(0, activePrize.amount - drawnCountForCurrentPrize);
+        setSpinCount(rem > 0 ? rem : 1);
+      } else {
+        setSpinCount(1);
+      }
+    }
+  }, [currentPrizeName, prizes, participants]);
+
+  const [digitPads, setDigitPads] = useState<string[]>(["0", "0", "0", "0"]);
 
   // Staggered or concurrent scrambling behavior for the digit boards
   useEffect(() => {
@@ -148,17 +170,18 @@ export default function LuckyDraw({
         setDigitPads([
           Math.floor(Math.random() * 10).toString(),
           Math.floor(Math.random() * 10).toString(),
+          Math.floor(Math.random() * 10).toString(),
           Math.floor(Math.random() * 10).toString()
         ]);
       }, 50);
       return () => clearInterval(interval);
     } else {
       if (winner) {
-        // Extract sequence digits from ID and pad to 3 spaces
+        // Extract sequence digits from ID and pad to 4 spaces
         const idStr = String(winner.id).trim();
-        setDigitPads(idStr.padStart(3, "0").split(""));
+        setDigitPads(idStr.padStart(4, "0").split(""));
       } else {
-        setDigitPads(["0", "0", "0"]);
+        setDigitPads(["0", "0", "0", "0"]);
       }
     }
   }, [isSpinning, winner]);
@@ -167,6 +190,13 @@ export default function LuckyDraw({
 
   // Filter available participants (not winners yet)
   const availablePool = participants.filter((p) => !p.isWinner);
+
+  // Find active prize config to determine total amount and remaining count
+  const activePrize = prizes.find((p) => p.name === currentPrizeName);
+  const drawnCountForCurrentPrize = activePrize
+    ? participants.filter((p) => p.isWinner && p.wonPrizeName === currentPrizeName).length
+    : 0;
+  const remainingCount = activePrize ? Math.max(0, activePrize.amount - drawnCountForCurrentPrize) : 0;
 
   // Sound effects
   const playBeep = (freq = 600, duration = 0.08) => {
@@ -269,8 +299,8 @@ export default function LuckyDraw({
         return;
       }
 
-      if (spinCount === 10 && remainingCount < 10) {
-        alert(`❌ ของรางวัลคงเหลือไม่พอสำหรับสุ่ม 10 คน!\n\nรางวัล "${currentPrizeName}" เหลือโควตาว่างสำหรับสุ่มเพียง ${remainingCount} ชิ้นเท่านั้น ไม่สามารถสุ่มทีเดียว 10 คนได้\n\n(กรุณาสุ่มทีละ 1 คน หรือเพิ่มจำนวนชิ้นของรางวัลนี้ในแดชบอร์ดสตาฟฟ์ก่อน)`);
+      if (spinCount > remainingCount) {
+        alert(`❌ ของรางวัลคงเหลือไม่พอสำหรับสุ่ม ${spinCount} คน!\n\nรางวัล "${currentPrizeName}" เหลือโควตาว่างสำหรับสุ่มเพียง ${remainingCount} ชิ้นเท่านั้น ไม่สามารถเลือกสุ่ม ${spinCount} คนได้\n\n(กรุณาลองสุ่มจำนวนที่น้อยลง หรือสุ่มทีละ 1 คน)`);
         return;
       }
     }
@@ -305,8 +335,8 @@ export default function LuckyDraw({
             setWinner(rawWinner);
             onWinnerDrawn(rawWinner.id, currentPrizeName);
           } else {
-            // Draw Math.min(10, availablePool.length) random unique winners
-            const winnersToDrawIndex = Math.min(10, availablePool.length);
+            // Draw Math.min(spinCount, availablePool.length) random unique winners
+            const winnersToDrawIndex = Math.min(spinCount, availablePool.length);
             const shuffled = [...availablePool].sort(() => 0.5 - Math.random());
             const selectedWinners = shuffled.slice(0, winnersToDrawIndex);
             
@@ -438,7 +468,7 @@ export default function LuckyDraw({
           ref={drawContainerRef}
           className={`${
             isFullscreenDraw
-              ? "fixed inset-0 z-50 overflow-y-auto flex flex-col justify-center items-center bg-[#050110] p-8 md:p-16 text-center"
+              ? "fixed inset-0 z-50 overflow-y-auto flex flex-col bg-[#050110] p-6 md:p-12 text-center"
               : "w-full glass-panel rounded-[32px] p-8 shadow-2xl flex flex-col justify-center items-center text-center relative overflow-hidden min-h-[460px]"
           }`}
         >
@@ -467,293 +497,338 @@ export default function LuckyDraw({
             <Sparkles className="w-12 h-12" />
           </div>
 
-          {/* Dynamic System Brand/Logo Header on screen */}
-          <div className="flex flex-col items-center justify-center gap-3 mb-6 relative z-10 select-none">
-            {logoUrl ? (
-              <img
-                src={logoUrl}
-                alt="System Logo"
-                className="w-[200px] h-auto object-contain"
-                referrerPolicy="no-referrer"
-              />
-            ) : (
-              <div className={`rounded-full bg-gradient-to-tr from-purple-500 to-pink-500 flex items-center justify-center text-white font-extrabold italic shadow-2xl shadow-purple-500/30 border border-white/10 transition-all ${
-                isFullscreenDraw ? "w-24 h-24 text-4xl" : "w-16 h-16 text-2xl"
-              }`}>
-                {systemTitle.charAt(0) || "N"}
-              </div>
-            )}
-            <div className="text-center">
-              <h2 className={`font-black tracking-tight bg-gradient-to-r from-white via-indigo-200 to-white bg-clip-text text-transparent uppercase ${
-                isFullscreenDraw ? "text-3xl md:text-5xl" : "text-xl md:text-2xl"
-              }`}>
-                {systemTitle}
-              </h2>
-              {systemSubtitle && (
-                <p className={`text-pink-400 font-bold uppercase tracking-widest mt-0.5 ${
-                  isFullscreenDraw ? "text-base" : "text-[10px]"
+          {/* Inner scrolling and spacing safe flex wrapper */}
+          <div className={`w-full max-w-5xl mx-auto my-auto flex flex-col items-center justify-center relative z-10 ${isFullscreenDraw ? "py-4 space-y-6 md:space-y-8" : "space-y-6"}`}>
+            
+            {/* Dynamic System Brand/Logo Header on screen */}
+            <div className="flex flex-col items-center justify-center gap-3 select-none">
+              {logoUrl ? (
+                <img
+                  src={logoUrl}
+                  alt="System Logo"
+                  className="w-[120px] h-auto object-contain"
+                  referrerPolicy="no-referrer"
+                />
+              ) : (
+                <div className={`rounded-full bg-gradient-to-tr from-purple-500 to-pink-500 flex items-center justify-center text-white font-extrabold italic shadow-2xl shadow-purple-500/30 border border-white/10 transition-all ${
+                  isFullscreenDraw ? "w-20 h-20 text-3xl" : "w-14 h-14 text-xl"
                 }`}>
-                  {systemSubtitle}
-                </p>
+                  {systemTitle.charAt(0) || "N"}
+                </div>
               )}
+              <div className="text-center">
+                <h2 className={`font-black tracking-tight leading-tight bg-gradient-to-r from-white via-indigo-200 to-white bg-clip-text text-transparent uppercase ${
+                  isFullscreenDraw ? "text-2xl md:text-4xl lg:text-5xl" : "text-xl md:text-2xl"
+                }`}>
+                  {systemTitle}
+                </h2>
+                {systemSubtitle && (
+                  <p className={`text-pink-400 font-bold uppercase tracking-widest mt-0.5 leading-normal ${
+                    isFullscreenDraw ? "text-sm md:text-base" : "text-[10px]"
+                  }`}>
+                    {systemSubtitle}
+                  </p>
+                )}
+              </div>
             </div>
-          </div>
 
-          <div className="flex flex-col sm:flex-row items-center gap-x-3 gap-y-2 mb-6 relative z-10 justify-center">
-            <span className="px-4 py-1.5 rounded-full border border-yellow-500/30 bg-yellow-500/10 text-yellow-300 text-xs sm:text-sm font-semibold tracking-wider uppercase flex items-center gap-1.5 justify-center">
-              🏆 กำลังจับรางวัลรอบ: {currentPrizeName}
-            </span>
-            <div className="flex bg-white/5 border border-white/10 rounded-full p-0.5 gap-1 shadow-inner">
-              <button
-                type="button"
-                onClick={() => {
-                  if (isSpinning) return;
-                  setSpinCount(1);
-                  setWinner(null);
-                  setMultiWinners([]);
-                }}
-                disabled={isSpinning}
-                className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer ${
-                  spinCount === 1
-                    ? "bg-white text-black shadow-md font-bold"
-                    : "text-white/60 hover:text-white disabled:opacity-50"
-                }`}
-              >
-                สุ่มทีละ 1 คน
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  if (isSpinning) return;
-                  setSpinCount(10);
-                  setWinner(null);
-                  setMultiWinners([]);
-                }}
-                disabled={isSpinning}
-                className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer ${
-                  spinCount === 10
-                    ? "bg-gradient-to-r from-pink-500 via-purple-600 to-indigo-600 text-white shadow-md font-bold"
-                    : "text-white/60 hover:text-white disabled:opacity-50"
-                }`}
-              >
-                ⚡ สุ่มทีเดียว 10 คน
-              </button>
+            <div className="flex flex-col sm:flex-row items-center gap-x-3 gap-y-2 justify-center">
+              <span className="px-4 py-1.5 rounded-full border border-yellow-500/30 bg-yellow-500/10 text-yellow-300 text-xs sm:text-sm font-semibold tracking-wider uppercase flex items-center gap-1.5 justify-center">
+                🏆 กำลังจับรางวัลรอบ: {currentPrizeName}
+              </span>
+              <div className="flex bg-white/5 border border-white/10 rounded-full p-0.5 gap-1 shadow-inner flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (isSpinning) return;
+                    setSpinCount(1);
+                    setWinner(null);
+                    setMultiWinners([]);
+                  }}
+                  disabled={isSpinning}
+                  className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer ${
+                    spinCount === 1
+                      ? "bg-white text-black shadow-md font-bold"
+                      : "text-white/60 hover:text-white disabled:opacity-50"
+                  }`}
+                >
+                  สุ่มทีละ 1 คน
+                </button>
+                {remainingCount > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (isSpinning) return;
+                      setSpinCount(remainingCount);
+                      setWinner(null);
+                      setMultiWinners([]);
+                    }}
+                    disabled={isSpinning}
+                    className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer ${
+                      spinCount === remainingCount
+                        ? "bg-gradient-to-r from-pink-500 via-purple-600 to-indigo-600 text-white shadow-md font-bold"
+                        : "text-white/60 hover:text-white disabled:opacity-50"
+                    }`}
+                  >
+                    ⚡ สุ่มทั้งหมดที่เหลือ ({remainingCount} คน)
+                  </button>
+                )}
+                {remainingCount >= 10 && remainingCount !== 10 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (isSpinning) return;
+                      setSpinCount(10);
+                      setWinner(null);
+                      setMultiWinners([]);
+                    }}
+                    disabled={isSpinning}
+                    className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer ${
+                      spinCount === 10
+                        ? "bg-[#0ea5e9] text-white shadow-md font-bold"
+                        : "text-white/60 hover:text-white disabled:opacity-50"
+                    }`}
+                  >
+                    ⚡ สุ่มทีเดียว 10 คน
+                  </button>
+                )}
+              </div>
             </div>
-          </div>
 
-          {/* Core Spinner Board */}
-          <div className="w-full max-w-5xl my-6 flex flex-col items-center justify-center relative min-h-[160px]">
-            <AnimatePresence mode="popLayout">
-              {/* Spinning State */}
-              {isSpinning && (
-                <motion.div
-                  key="spinning-number"
-                  initial={{ opacity: 0, scale: 0.82, filter: "blur(8px)" }}
-                  animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
-                  exit={{ opacity: 0, scale: 1.15, filter: "blur(4px)" }}
-                  transition={{ duration: 0.1 }}
-                  className="space-y-6 text-center flex flex-col items-center w-full"
-                >
-                  <div className="font-mono text-[#FF2E93] font-bold text-lg uppercase tracking-[0.25em] animate-pulse">
-                    ⚡ RUNNING NUMBER / กำลังสุ่มตัวเลขทุกหลักพร้อมกัน...
-                  </div>
-                  <div className="flex gap-3 sm:gap-4 md:gap-6 justify-center items-center my-4 select-none flex-wrap">
-                    {digitPads.map((digit, index) => (
-                      <div
-                        key={index}
-                        className="bg-[#A855F7] text-black text-6xl sm:text-8xl md:text-9xl lg:text-[11rem] w-20 h-28 sm:w-28 sm:h-40 md:w-36 md:h-52 lg:w-44 lg:h-64 rounded-2xl md:rounded-[2rem] flex items-center justify-center font-black font-mono shadow-[0_0_55px_rgba(168,85,247,0.55)] border-[4px] border-purple-200 leading-none relative overflow-hidden animate-bounce"
-                        style={{
-                          animationDuration: `${0.12 + index * 0.04}s`,
-                        }}
-                      >
-                        <div className="absolute inset-x-0 top-0 h-[2px] bg-white/40 pointer-events-none" />
-                        <span className="relative z-10">{digit}</span>
-                        <div className="absolute inset-0 bg-gradient-to-tr from-white/0 via-white/5 to-white/10 pointer-events-none" />
-                      </div>
-                    ))}
-                  </div>
-                  <div className="text-white/40 font-mono text-xs uppercase tracking-widest">
-                    HOLDING BREATH / กรุณารอลุ้นหมายเลข...
-                  </div>
-                </motion.div>
-              )}
-
-              {/* No Winner yet and not spinning state */}
-              {!isSpinning && !winner && multiWinners.length === 0 && (
-                <motion.div
-                  key="idle-state"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  className="space-y-6 text-center flex flex-col items-center w-full"
-                >
-                  <div className="font-mono text-purple-400 font-semibold text-lg uppercase tracking-widest animate-pulse">
-                    READY TO SPIN / ลำดับผู้ลงทะเบียนพร้อมสุ่ม...
-                  </div>
-                  
-                  {/* Purple/Black digit boxes before starting to spin */}
-                  <div className="flex gap-3 sm:gap-4 md:gap-6 justify-center items-center my-4 select-none flex-wrap">
-                    {digitPads.map((digit, index) => (
-                      <motion.div
-                        key={index}
-                        initial={{ scale: 0.9, opacity: 0 }}
-                        animate={{ scale: 1, opacity: 1 }}
-                        transition={{ delay: index * 0.08, type: "spring" }}
-                        className="bg-[#A855F7] text-black text-6xl sm:text-8xl md:text-9xl lg:text-[11rem] w-20 h-28 sm:w-28 sm:h-40 md:w-36 md:h-52 lg:w-44 lg:h-64 rounded-2xl md:rounded-[2rem] flex items-center justify-center font-black font-mono shadow-[0_0_40px_rgba(168,85,247,0.4)] border-[3px] border-purple-300 leading-none relative overflow-hidden"
-                      >
-                        <div className="absolute inset-x-0 top-0 h-[2px] bg-white/30 pointer-events-none" />
-                        <span className="relative z-10">{digit}</span>
-                        <div className="absolute inset-0 bg-gradient-to-tr from-white/0 via-white/5 to-white/10 pointer-events-none" />
-                      </motion.div>
-                    ))}
-                  </div>
-
-                  <div className="text-center">
-                    <p className="text-white/60 font-light max-w-md text-base leading-relaxed">
-                      มีรายชื่อสำรองในระบบทั้งหมด <span className="text-pink-400 font-bold">{availablePool.length} คน</span> ที่พร้อมรับโชคชิ้นนี้!
-                    </p>
-                    <p className="text-pink-400/80 text-xs font-semibold tracking-widest mt-3 flex items-center justify-center gap-1.5 uppercase">
-                      <Compass className="w-4 h-4 animate-spin text-pink-500" />
-                      กดปุ่ม SPIN ดำเนินการสุ่มทันที
-                    </p>
-                  </div>
-                </motion.div>
-              )}
-
-              {/* Winner Announced Showcase (Bold text, projector styled) */}
-              {!isSpinning && winner && (
-                <motion.div
-                  key="winner-showcase"
-                  initial={{ scale: 0.6, y: 50, opacity: 0 }}
-                  animate={{
-                    scale: [1.2, 1],
-                    y: 0,
-                    opacity: 1
-                  }}
-                  transition={{
-                    type: "spring",
-                    damping: 12,
-                    stiffness: 110
-                  }}
-                  className="text-center relative z-10 p-2 flex flex-col items-center w-full"
-                >
-                  <div className="text-amber-400 font-bold text-lg sm:text-xl uppercase tracking-widest bg-amber-500/10 border border-amber-500/30 px-4 py-1.5 rounded-full inline-flex items-center gap-1.5 mb-4 glow-text-yellow">
-                    🎉 <Sparkles className="w-4 h-4" /> THE LUCKY WINNER IS <Sparkles className="w-4 h-4" /> 🎉
-                  </div>
-
-                  {/* Winner sequence ID shown in purple backdrop cards */}
-                  <div className="flex gap-2 sm:gap-3 md:gap-4 justify-center items-center mb-6 select-none scale-90 sm:scale-95 md:scale-100 flex-wrap">
-                    {digitPads.map((digit, index) => (
-                      <motion.div
-                        key={index}
-                        initial={{ scale: 0.5, rotateY: 180 }}
-                        animate={{ scale: 1, rotateY: 0 }}
-                        transition={{ delay: index * 0.1, type: "spring", stiffness: 150 }}
-                        className="bg-[#A855F7] text-black text-5xl sm:text-7xl md:text-8xl lg:text-9xl w-16 h-24 sm:w-24 sm:h-34 md:w-30 md:h-44 rounded-xl md:rounded-[1.5rem] flex items-center justify-center font-black font-mono shadow-[0_0_45px_rgba(168,85,247,0.45)] border-[2.5px] border-purple-200 leading-none relative overflow-hidden"
-                      >
-                        <div className="absolute inset-x-0 top-0 h-[1.5px] bg-white/40 pointer-events-none" />
-                        <span className="relative z-10">{digit}</span>
-                        <div className="absolute inset-0 bg-gradient-to-tr from-white/0 via-white/5 to-white/10 pointer-events-none" />
-                      </motion.div>
-                    ))}
-                  </div>
-
-                  {/* Gigantic Title - Projector optimized (4K clean style) */}
-                  <div className="text-5xl sm:text-7xl lg:text-8xl font-extrabold bg-gradient-to-b from-yellow-100 via-amber-300 to-yellow-500 bg-clip-text text-transparent transform scale-y-110 tracking-wide leading-tight glow-text-yellow py-3 uppercase">
-                    {winner.fullName}
-                  </div>
-
-                  <div className="text-xl sm:text-2xl font-semibold text-white mt-2 flex items-center justify-center gap-2">
-                    <span className="text-white/40 font-light">ฝ่าย / หน่วยงาน:</span>
-                    <span className="text-emerald-400">{winner.department}</span>
-                  </div>
-
-                  <div className="text-sm font-mono text-purple-300 mt-3 bg-[#050110]/95 px-4 py-2 rounded-xl inline-block border border-white/10 uppercase tracking-wider">
-                    ID: #{String(winner.id).padStart(4, "0")} | รางวัล: {winner.wonPrizeName}
-                  </div>
-                </motion.div>
-              )}
-
-              {/* Multi Winners Showcase (10-Winner gorgeous grid) */}
-              {!isSpinning && multiWinners.length > 0 && (
-                <motion.div
-                  key="multi-winner-showcase"
-                  initial={{ opacity: 0, scale: 0.9 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  className="w-full text-center p-2"
-                >
-                  <div className="text-amber-400 font-bold text-lg sm:text-xl uppercase tracking-widest bg-amber-500/10 border border-amber-500/30 px-6 py-2 rounded-full inline-flex items-center gap-1.5 mb-6 glow-text-yellow">
-                    🎉 <Sparkles className="w-4 h-4" /> เก่งมาก! ผู้โชคดีได้รับรางวัลรอบนี้ทั้งสิ้น {multiWinners.length} ท่าน <Sparkles className="w-4 h-4" /> 🎉
-                  </div>
-
-                  <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-5 gap-4 w-full">
-                    {multiWinners.map((w, index) => (
-                      <motion.div
-                        key={w.id}
-                        initial={{ opacity: 0, y: 15 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: index * 0.05, type: "spring", stiffness: 120 }}
-                        className="glass-panel rounded-2xl p-4 border border-yellow-500/20 bg-[#ffffff]/5 text-center shadow-lg relative overflow-hidden flex flex-col justify-between"
-                      >
-                        <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-yellow-300 via-amber-400 to-pink-500 animate-pulse" />
-                        <div>
-                          <span className="absolute top-2 right-2 flex h-5 w-5 items-center justify-center rounded-full bg-white/5 border border-white/10 text-[10px] font-black text-yellow-300 font-mono">
-                            {index + 1}
-                          </span>
-                          <Trophy className="w-5 h-5 text-yellow-400 mx-auto mb-2 animate-bounce mt-2" />
-                          <div className="text-sm font-bold text-white truncate px-1" title={w.fullName}>
-                            {w.fullName}
-                          </div>
-                          <div className="text-[11px] text-white/55 truncate mt-0.5" title={w.department}>
-                            {w.department}
-                          </div>
+            {/* Core Spinner Board */}
+            <div className="w-full max-w-5xl flex flex-col items-center justify-center relative min-h-[160px]">
+              <AnimatePresence mode="popLayout">
+                {/* Spinning State */}
+                {isSpinning && (
+                  <motion.div
+                    key="spinning-number"
+                    initial={{ opacity: 0, scale: 0.82, filter: "blur(8px)" }}
+                    animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
+                    exit={{ opacity: 0, scale: 1.15, filter: "blur(4px)" }}
+                    transition={{ duration: 0.1 }}
+                    className="space-y-4 md:space-y-6 text-center flex flex-col items-center w-full"
+                  >
+                    <div className="font-mono text-[#FF2E93] font-bold text-sm sm:text-base md:text-lg uppercase tracking-[0.25em] animate-pulse">
+                      ⚡ RUNNING NUMBER / กำลังสุ่มตัวเลขทุกหลักพร้อมกัน...
+                    </div>
+                    <div className="flex gap-2 sm:gap-3 md:gap-4 lg:gap-6 justify-center items-center my-2 select-none flex-wrap">
+                      {digitPads.map((digit, index) => (
+                        <div
+                          key={index}
+                          className={`bg-[#A855F7] text-black flex items-center justify-center font-black font-mono shadow-[0_0_40px_rgba(168,85,247,0.45)] border-[3px] border-purple-200 leading-none relative overflow-hidden animate-bounce rounded-2xl md:rounded-[2rem] ${
+                            isFullscreenDraw
+                              ? "text-6xl sm:text-7xl md:text-8xl lg:text-9xl w-20 h-28 sm:w-24 sm:h-34 md:w-28 md:h-40 lg:w-36 lg:h-52"
+                              : "text-4xl sm:text-5xl md:text-6xl w-14 h-20 sm:w-18 sm:h-26 md:w-22 md:h-30"
+                          }`}
+                          style={{
+                            animationDuration: `${0.12 + index * 0.04}s`,
+                          }}
+                        >
+                          <div className="absolute inset-x-0 top-0 h-[2px] bg-white/40 pointer-events-none" />
+                          <span className="relative z-10">{digit}</span>
+                          <div className="absolute inset-0 bg-gradient-to-tr from-white/0 via-white/5 to-white/10 pointer-events-none" />
                         </div>
-                        <div className="text-[9px] font-mono text-purple-300 mt-2.5 bg-black/30 py-0.5 rounded border border-white/5 uppercase">
-                          ID: #{String(w.id).padStart(4, "0")}
-                        </div>
-                      </motion.div>
-                    ))}
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
+                      ))}
+                    </div>
+                    <div className="text-white/40 font-mono text-xs uppercase tracking-widest">
+                      HOLDING BREATH / กรุณารอลุ้นหมายเลข...
+                    </div>
+                  </motion.div>
+                )}
 
-          {/* Trigger button */}
-          <div className="relative z-10 flex flex-col sm:flex-row gap-4 items-center w-full max-w-md justify-center">
-            <motion.button
-              whileHover={{ scale: isSpinning ? 1 : 1.05, boxShadow: "0 0 30px rgba(168,85,247,0.5)" }}
-              whileTap={{ scale: isSpinning ? 1 : 0.95 }}
-              onClick={handleSpin}
-              disabled={isSpinning || availablePool.length === 0}
-              className={`w-full sm:w-64 font-extrabold uppercase py-4 sm:py-5 px-8 rounded-2xl shadow-2xl tracking-widest text-lg flex items-center justify-center gap-3 transition-all cursor-pointer border-t border-white/25 select-none ${
-                isSpinning
-                  ? "bg-white/10 text-white/30 cursor-not-allowed border-none"
-                  : availablePool.length === 0
-                  ? "from-white/5 to-white/10 text-white/20 border-none cursor-not-allowed"
-                  : "bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-650 hover:to-pink-650 text-white"
-              }`}
-              id="btn-spin"
-            >
-              <RefreshCw className={`w-6 h-6 ${isSpinning ? "animate-spin" : ""}`} />
-              {isSpinning ? "SPINNING..." : spinCount === 1 ? "SPIN FOR WIN" : "SPIN 10 WINNERS!"}
-            </motion.button>
+                {/* No Winner yet and not spinning state */}
+                {!isSpinning && !winner && multiWinners.length === 0 && (
+                  <motion.div
+                    key="idle-state"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="space-y-4 md:space-y-6 text-center flex flex-col items-center w-full"
+                  >
+                    <div className="font-mono text-purple-400 font-semibold text-sm sm:text-base md:text-lg uppercase tracking-widest animate-pulse">
+                      READY TO SPIN / ลำดับผู้ลงทะเบียนพร้อมสุ่ม...
+                    </div>
+                    
+                    {/* Purple/Black digit boxes before starting to spin */}
+                    <div className="flex gap-2 sm:gap-3 md:gap-4 lg:gap-6 justify-center items-center my-2 select-none flex-wrap">
+                      {digitPads.map((digit, index) => (
+                        <motion.div
+                          key={index}
+                          initial={{ scale: 0.9, opacity: 0 }}
+                          animate={{ scale: 1, opacity: 1 }}
+                          transition={{ delay: index * 0.08, type: "spring" }}
+                          className={`bg-[#A855F7] text-black flex items-center justify-center font-black font-mono shadow-[0_0_40px_rgba(168,85,247,0.4)] border-[3px] border-purple-300 leading-none relative overflow-hidden rounded-2xl md:rounded-[2rem] ${
+                            isFullscreenDraw
+                              ? "text-6xl sm:text-7xl md:text-8xl lg:text-9xl w-20 h-28 sm:w-24 sm:h-34 md:w-28 md:h-40 lg:w-36 lg:h-52"
+                              : "text-4xl sm:text-5xl md:text-6xl w-14 h-20 sm:w-18 sm:h-26 md:w-22 md:h-30"
+                          }`}
+                        >
+                          <div className="absolute inset-x-0 top-0 h-[2px] bg-white/30 pointer-events-none" />
+                          <span className="relative z-10">{digit}</span>
+                          <div className="absolute inset-0 bg-gradient-to-tr from-white/0 via-white/5 to-white/10 pointer-events-none" />
+                        </motion.div>
+                      ))}
+                    </div>
 
-            {(winner || multiWinners.length > 0) && !isSpinning && (
+                    <div className="text-center">
+                      <p className="text-white/60 font-light max-w-md text-sm sm:text-base leading-relaxed">
+                        มีรายชื่อสำรองในระบบทั้งหมด <span className="text-pink-400 font-bold">{availablePool.length} คน</span> ที่พร้อมรับโชคชิ้นนี้!
+                      </p>
+                      <p className="text-pink-400/80 text-xs font-semibold tracking-widest mt-2 flex items-center justify-center gap-1.5 uppercase">
+                        <Compass className="w-4 h-4 animate-spin text-pink-500" />
+                        กดปุ่ม SPIN ดำเนินการสุ่มทันที
+                      </p>
+                    </div>
+                  </motion.div>
+                )}
+
+                {/* Winner Announced Showcase (Bold text, projector styled) */}
+                {!isSpinning && winner && (
+                  <motion.div
+                    key="winner-showcase"
+                    initial={{ scale: 0.6, y: 50, opacity: 0 }}
+                    animate={{
+                      scale: [1.2, 1],
+                      y: 0,
+                      opacity: 1
+                    }}
+                    transition={{
+                      type: "spring",
+                      damping: 12,
+                      stiffness: 110
+                    }}
+                    className="text-center relative z-10 p-2 flex flex-col items-center w-full"
+                  >
+                    <div className="text-amber-400 font-bold text-sm sm:text-base uppercase tracking-widest bg-amber-500/10 border border-amber-500/30 px-4 py-1 rounded-full inline-flex items-center gap-1.5 mb-3 glow-text-yellow select-none">
+                      🎉 <Sparkles className="w-4 h-4" /> THE LUCKY WINNER IS <Sparkles className="w-4 h-4" /> 🎉
+                    </div>
+
+                    {/* Winner sequence ID shown in purple backdrop cards */}
+                    <div className="flex gap-2 sm:gap-3 justify-center items-center mb-4 select-none flex-wrap">
+                      {digitPads.map((digit, index) => (
+                        <motion.div
+                          key={index}
+                          initial={{ scale: 0.5, rotateY: 180 }}
+                          animate={{ scale: 1, rotateY: 0 }}
+                          transition={{ delay: index * 0.1, type: "spring", stiffness: 150 }}
+                          className={`bg-[#A855F7] text-black flex items-center justify-center font-black font-mono shadow-[0_0_40px_rgba(168,85,247,0.45)] border-[2.5px] border-purple-200 leading-none relative overflow-hidden rounded-xl md:rounded-[1.5rem] ${
+                            isFullscreenDraw
+                              ? "text-5xl sm:text-6xl md:text-7xl w-16 h-22 sm:w-20 sm:h-28 md:w-24 md:h-34"
+                              : "text-3xl sm:text-4xl md:text-5xl w-12 h-16 sm:w-14 sm:h-20 md:w-16 md:h-24"
+                          }`}
+                        >
+                          <div className="absolute inset-x-0 top-0 h-[1.5px] bg-white/40 pointer-events-none" />
+                          <span className="relative z-10">{digit}</span>
+                          <div className="absolute inset-0 bg-gradient-to-tr from-white/0 via-white/5 to-white/10 pointer-events-none" />
+                        </motion.div>
+                      ))}
+                    </div>
+
+                    {/* Gigantic Title - Projector optimized (4K clean style) */}
+                    <div className={`font-extrabold bg-gradient-to-b from-yellow-101 via-amber-300 to-yellow-500 bg-clip-text text-transparent tracking-wide glow-text-yellow py-2 px-4 uppercase break-words max-w-full text-center ${
+                      isFullscreenDraw
+                        ? "text-4xl sm:text-5xl md:text-6xl lg:text-7xl leading-tight"
+                        : "text-3xl sm:text-4xl md:text-5xl leading-snug"
+                    }`}>
+                      {winner.fullName}
+                    </div>
+
+                    <div className={`font-semibold text-white mt-1.5 flex items-center justify-center gap-2 flex-wrap ${
+                      isFullscreenDraw ? "text-lg sm:text-xl md:text-2xl" : "text-sm sm:text-base"
+                    }`}>
+                      <span className="text-white/40 font-light">ฝ่าย / หน่วยงาน:</span>
+                      <span className="text-emerald-400">{winner.department}</span>
+                    </div>
+
+                    <div className={`font-mono text-purple-300 mt-2.5 bg-[#050110]/95 px-4 py-1.5 rounded-xl inline-block border border-white/10 uppercase tracking-wider ${
+                      isFullscreenDraw ? "text-xs sm:text-sm" : "text-[10px] sm:text-xs"
+                    }`}>
+                      ID: #{String(winner.id).padStart(4, "0")} | รางวัล: {winner.wonPrizeName}
+                    </div>
+                  </motion.div>
+                )}
+
+                {/* Multi Winners Showcase (10-Winner gorgeous grid) */}
+                {!isSpinning && multiWinners.length > 0 && (
+                  <motion.div
+                    key="multi-winner-showcase"
+                    initial={{ opacity: 0, scale: 0.9 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    className="w-full text-center p-2"
+                  >
+                    <div className="text-amber-400 font-bold text-sm sm:text-base uppercase tracking-widest bg-amber-500/10 border border-amber-500/30 px-6 py-2 rounded-full inline-flex items-center gap-1.5 mb-4 glow-text-yellow select-none">
+                      🎉 <Sparkles className="w-4 h-4" /> เก่งมาก! ผู้โชคดีได้รับรางวัลรอบนี้ทั้งสิ้น {multiWinners.length} ท่าน <Sparkles className="w-4 h-4" /> 🎉
+                    </div>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4 w-full">
+                      {multiWinners.map((w, index) => (
+                        <motion.div
+                          key={w.id}
+                          initial={{ opacity: 0, y: 15 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ delay: index * 0.05, type: "spring", stiffness: 120 }}
+                          className="glass-panel rounded-2xl p-4 border border-yellow-500/20 bg-[#ffffff]/5 text-center shadow-lg relative overflow-hidden flex flex-col justify-between"
+                        >
+                          <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-yellow-300 via-amber-400 to-pink-500 animate-pulse" />
+                          <div>
+                            <span className="absolute top-2 right-2 flex h-5 w-5 items-center justify-center rounded-full bg-white/5 border border-white/10 text-[10px] font-black text-yellow-300 font-mono">
+                              {index + 1}
+                            </span>
+                            <Trophy className="w-5 h-5 text-yellow-400 mx-auto mb-2 animate-bounce mt-2" />
+                            <div className="text-sm font-bold text-white truncate px-1" title={w.fullName}>
+                              {w.fullName}
+                            </div>
+                            <div className="text-[11px] text-white/55 truncate mt-0.5" title={w.department}>
+                              {w.department}
+                            </div>
+                          </div>
+                          <div className="text-[9px] font-mono text-purple-300 mt-2.5 bg-black/30 py-0.5 rounded border border-white/5 uppercase">
+                            ID: #{String(w.id).padStart(4, "0")}
+                          </div>
+                        </motion.div>
+                      ))}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+
+            {/* Trigger button */}
+            <div className="flex flex-col sm:flex-row gap-4 items-center w-full max-w-md justify-center">
               <motion.button
-                initial={{ opacity: 0, x: 20 }}
-                animate={{ opacity: 1, x: 0 }}
-                onClick={() => {
-                  setWinner(null);
-                  setMultiWinners([]);
-                }}
-                className="w-full sm:w-auto px-6 py-4 bg-white/5 hover:bg-white/10 border border-white/10 rounded-2xl font-semibold text-white transition-all cursor-pointer flex items-center justify-center gap-2 text-base shadow-lg"
-                id="btn-next-spin"
+                whileHover={{ scale: isSpinning ? 1 : 1.05, boxShadow: "0 0 30px rgba(168,85,247,0.5)" }}
+                whileTap={{ scale: isSpinning ? 1 : 0.95 }}
+                onClick={handleSpin}
+                disabled={isSpinning || availablePool.length === 0}
+                className={`w-full sm:w-64 font-extrabold uppercase py-4 sm:py-5 px-8 rounded-2xl shadow-2xl tracking-widest text-lg flex items-center justify-center gap-3 transition-all cursor-pointer border-t border-white/25 select-none ${
+                  isSpinning
+                    ? "bg-white/10 text-white/30 cursor-not-allowed border-none"
+                    : availablePool.length === 0
+                    ? "from-white/5 to-white/10 text-white/20 border-none cursor-not-allowed"
+                    : "bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-650 hover:to-pink-650 text-white"
+                }`}
+                id="btn-spin"
               >
-                <span>ล้างจอ / สุ่มใหม่</span>
-                <ArrowRight className="w-5 h-5 text-pink-400" />
+                <RefreshCw className={`w-6 h-6 ${isSpinning ? "animate-spin" : ""}`} />
+                {isSpinning ? "SPINNING..." : spinCount === 1 ? "SPIN FOR WIN" : `SPIN ${spinCount} WINNERS!`}
               </motion.button>
-            )}
+
+              {(winner || multiWinners.length > 0) && !isSpinning && (
+                <motion.button
+                  initial={{ opacity: 0, x: 20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  onClick={() => {
+                    setWinner(null);
+                    setMultiWinners([]);
+                  }}
+                  className="w-full sm:w-auto px-6 py-4 bg-white/5 hover:bg-white/10 border border-white/10 rounded-2xl font-semibold text-white transition-all cursor-pointer flex items-center justify-center gap-2 text-base shadow-lg"
+                  id="btn-next-spin"
+                >
+                  <span>ล้างจอ / สุ่มใหม่</span>
+                  <ArrowRight className="w-5 h-5 text-pink-400" />
+                </motion.button>
+              )}
+            </div>
           </div>
         </div>
 
